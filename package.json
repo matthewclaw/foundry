@@ -1,0 +1,19 @@
+{
+  "name": "foundry",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Foundry: a control plane for persistent AI specialists.",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint:deps": "depcruise packages --config .dependency-cruiser.cjs"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^16.4.3",
+    "typescript": "^5.6.3"
+  }
+}
