@@ -1,0 +1,19 @@
+# Dependencies & build output (TS monorepo — see docs/implementation/contracts.md)
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Runtime data (agent state, DB, workspaces — never committed)
+.ade/
+
+# Environment & secrets
+.env
+.env.*
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+*.log
