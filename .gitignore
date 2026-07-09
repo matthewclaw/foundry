@@ -6,7 +6,7 @@ coverage/
 *.tsbuildinfo
 
 # Runtime data (agent state, DB, workspaces — never committed)
-.ade/
+.foundry/
 
 # Environment & secrets
 .env

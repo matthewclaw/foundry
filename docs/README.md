@@ -1,6 +1,6 @@
-# ADE Architecture Documents
+# Foundry Architecture Documents
 
-Working name: **ADE** — *Agent Development Environment* (after the repository name; rename freely, nothing binds to it).
+The project is **Foundry** (repo: [matthewclaw/foundry](https://github.com/matthewclaw/foundry)) — packages are scoped `@foundry/*`, the CLI is `foundry`, runtime data lives in `.foundry/`.
 
 These documents are the response to [`foundation/FABLE_ARCHITECT_BRIEF.md`](../foundation/FABLE_ARCHITECT_BRIEF.md) and are governed by [`foundation/PROJECT_CHARTER.md`](../foundation/PROJECT_CHARTER.md).
 
@@ -24,4 +24,4 @@ Read `architecture/01` first — it contains the executive summary **and the cha
 
 ## The one-paragraph version
 
-ADE is a control plane for persistent AI specialists. An **agent** is a durable record — identity, charter, memory, relationships, history — never a process. Work happens in **workstreams** (long-lived threads of intent) executed as ephemeral, resumable **runs** by interchangeable **execution engines** (Claude Code first) behind a narrow adapter contract. Every organisational act — delegating, escalating, requesting review, reporting completion — is an explicit tool call the engine makes back into the control plane, which makes the whole organisation auditable by construction. State lives in SQLite with an append-only event log beside it; the UI is a projection of that log, organised around a human attention queue rather than dashboards, because the scarce resource in an AI organisation is human attention, not compute.
+Foundry is a control plane for persistent AI specialists. An **agent** is a durable record — identity, charter, memory, relationships, history — never a process. Work happens in **workstreams** (long-lived threads of intent) executed as ephemeral, resumable **runs** by interchangeable **execution engines** (Claude Code first) behind a narrow adapter contract. Every organisational act — delegating, escalating, requesting review, reporting completion — is an explicit tool call the engine makes back into the control plane, which makes the whole organisation auditable by construction. State lives in SQLite with an append-only event log beside it; the UI is a projection of that log, organised around a human attention queue rather than dashboards, because the scarce resource in an AI organisation is human attention, not compute.

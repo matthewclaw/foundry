@@ -53,7 +53,7 @@ Ranked by (impact × likelihood), with mitigations already in the design:
 4. **Workstream summarisation.** When engine sessions can't resume (engine swap, expiry), how good must the recomposed summary be? V1 uses run results + goal; may need a dedicated summarisation step.
 5. **Cross-workstream awareness.** Should an agent's run know about its *other* open workstreams (risk: context bloat; benefit: self-consistency)? V1: index-level mention only.
 6. **Multi-human semantics.** When server mode lands: who accepts root tasks, who owns an agent, what does "the human" mean in policy? The actor model carries the data; the *semantics* need design then.
-7. **Naming.** "ADE" is a placeholder (and collides with the brief's inspiration list). Decide before anything public.
+7. ~~**Naming.**~~ Resolved 2026-07-09: the project is **Foundry** (originally drafted under the placeholder "ADE").
 
 ## Future Evolution
 
@@ -62,7 +62,7 @@ Sequenced sketches, each compatible with (and none required by) the current desi
 - **Remote runners** (07 growth step 3) → fleets of execution machines under one org.
 - **Server mode / teams of humans** → shared organisations; roles for humans (lead, reviewer, observer); the attention layer becomes per-human inboxes plus a team escalation policy.
 - **Richer memory backends** behind the 05 seam: retrieval, consolidation runs, team memory with provenance.
-- **Learning graph** (after Hermes): a visualisation of what each agent has actually learned — skills + memory nodes, edges from usage and relatedness — purely a projection over the event log and memory/skills dirs ADE already maintains; and background-review loops proposing charter/skill improvements (§OQ3).
+- **Learning graph** (after Hermes): a visualisation of what each agent has actually learned — skills + memory nodes, edges from usage and relatedness — purely a projection over the event log and memory/skills dirs Foundry already maintains; and background-review loops proposing charter/skill improvements (§OQ3).
 - **Learned routing** (02): skill-based assignment from delegation history — the task/acceptance corpus is exactly the training signal.
 - **Organisational analytics**: which specialists' work gets rejected, where budgets burn, which charters correlate with quality — engineering-management insight over the event log.
 - **Agent mentoring agents**: senior agents reviewing juniors' deliverables routinely, charter-edit proposals — the charter's principle 6 grown up.

@@ -1,11 +1,11 @@
 # Repository Structure, Component Contracts, API Contracts, Data Contracts, Testing Strategy
 
-Everything here is a **contract**: implementation agents build to these shapes; changing a shape is an architecture change (new ADR), not a refactor. Signatures are TypeScript; all cross-boundary payloads also exist as Zod schemas in `@ade/core` (single source of truth ⇒ static types + runtime validation + JSON Schema for MCP/API docs).
+Everything here is a **contract**: implementation agents build to these shapes; changing a shape is an architecture change (new ADR), not a refactor. Signatures are TypeScript; all cross-boundary payloads also exist as Zod schemas in `@foundry/core` (single source of truth ⇒ static types + runtime validation + JSON Schema for MCP/API docs).
 
 ## Repository structure
 
 ```
-ade/
+foundry/
 ├── docs/                      # these documents
 ├── packages/
 │   ├── core/                  # L0: domain types, Zod schemas, event catalogue, ids. No I/O. Depends on nothing.
@@ -16,7 +16,7 @@ ade/
 │   ├── runtime/               # L2: scheduler, run supervisor, workspace manager. Depends: core, store, adapter-api.
 │   ├── server/                # L3: control-plane API (HTTP+SSE), org-tools MCP server, policy, routing, context composition. Depends: core, store, runtime.
 │   ├── ui/                    # L4: React SPA. Depends: core (types only) + HTTP/SSE. Never imports store/runtime.
-│   └── cli/                   # L4: `ade` command (init, daemon, agent mgmt, backup). Depends: core + HTTP.
+│   └── cli/                   # L4: `foundry` command (init, daemon, agent mgmt, backup). Depends: core + HTTP.
 ├── package.json               # pnpm workspaces
 └── …
 ```
@@ -27,11 +27,11 @@ Dependency rule: **packages depend only on lower layers; L4 talks to L3 only ove
 
 ## Component contracts
 
-### `@ade/core` (domain + schemas)
+### `@foundry/core` (domain + schemas)
 
 Exports, no I/O: entity types (doc 02), all Zod schemas (`EventSchema`, `MessageSchema`, `TaskSpecSchema`, `EngineEventSchema`, org-tool input/output schemas, API DTOs), the **event catalogue**, ULID helpers, state-machine transition tables (`canTransition(entity, from, to)` — one implementation of the doc-02 state machines, used by store and server alike).
 
-### `@ade/store`
+### `@foundry/store`
 
 ```ts
 interface Store {
@@ -57,7 +57,7 @@ interface Store {
 
 Purpose-built projections live here (not assembled in the server or UI) so there is exactly one definition of, e.g., "agent status" (ADR-008).
 
-### `@ade/adapter-api`
+### `@foundry/adapter-api`
 
 ```ts
 interface ExecutionAdapter {
@@ -94,7 +94,7 @@ type EngineEvent =
 
 Also exports the **conformance suite**: `describeAdapterContract(makeAdapter)` — a Vitest suite any adapter package must pass (lifecycle, cancel semantics, event ordering, capability honesty: declared capabilities must be exercised, undeclared must never emit).
 
-### `@ade/runtime`
+### `@foundry/runtime`
 
 ```ts
 interface Runtime {
@@ -106,7 +106,7 @@ interface Runtime {
 
 Owns: per-workstream serialization, concurrency caps, priority (human-triggered first), watchdogs (stall, wall-clock, budget cutoff on streamed usage), workspace acquisition, adapter invocation, event persistence, terminal-state folding. Configured with `Store` + adapter registry; **contains no HTTP and no engine specifics.**
 
-### `@ade/server`
+### `@foundry/server`
 
 Owns: the HTTP/SSE API (below), org-tools MCP server + CLI shim, policy engine (org→team→agent chain; budgets, depth, comms, approvals), router (02), context composition (03), startup orchestration (store migrate → runtime reconcile → listen).
 

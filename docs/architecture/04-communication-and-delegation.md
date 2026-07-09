@@ -2,7 +2,7 @@
 
 ## Design position
 
-The brief says: *"Do not simply build chat. Design communication."* Taken further (challenge C3): between agents, chat is actively harmful — unbounded token cost, low signal, and an injection vector. ADE's communication layer is therefore built from three commitments:
+The brief says: *"Do not simply build chat. Design communication."* Taken further (challenge C3): between agents, chat is actively harmful — unbounded token cost, low signal, and an injection vector. Foundry's communication layer is therefore built from three commitments:
 
 1. **Every message is typed** from a closed set, with a schema and a required disposition.
 2. **Every message routes through the control plane** — agents hold no direct channels; policy and budgets apply at the boundary; everything is an event.

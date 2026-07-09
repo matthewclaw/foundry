@@ -2,7 +2,7 @@
 
 ## Observability Architecture
 
-The brief calls observability "the single most important requirement." ADE's answer is structural, not a feature: **the event log is the system** (01, decision 3). Observability isn't instrumentation bolted onto behaviour — behaviour that doesn't emit events cannot occur, because the only write path emits them.
+The brief calls observability "the single most important requirement." Foundry's answer is structural, not a feature: **the event log is the system** (01, decision 3). Observability isn't instrumentation bolted onto behaviour — behaviour that doesn't emit events cannot occur, because the only write path emits them.
 
 ### The three questions
 
@@ -61,7 +61,7 @@ Five, and resisting more:
 ### What is deliberately absent
 
 - **No terminal emulator.** Runs are supervised through timelines; the workspace is on disk for the rare shell need. Embedding terminals would recreate "a collection of terminal sessions" — the thing the brief exists to escape.
-- **No file editor.** ADE is not an IDE (charter, explicitly). Artifacts render read-only; "open in editor" hands off to the user's own tools.
+- **No file editor.** Foundry is not an IDE (charter, explicitly). Artifacts render read-only; "open in editor" hands off to the user's own tools.
 - **No chat-first layout.** Conversation composers exist inside workstreams, but the app's shape is org → agent → work, not a messenger with a sidebar.
 - **No wall-of-charts dashboard.** Metrics appear where decisions happen (meters on trees, sparklines on agents), not on a grafana-cosplay page.
 

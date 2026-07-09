@@ -138,7 +138,7 @@ events(handle): AsyncStream<EngineEvent>  // minimally: started, output(text), e
 | `tool_events` | Tool-level audit ("it edited these files, ran these commands") |
 | `usage` | Token/cost accounting per run |
 | `reasoning_summaries` | "Why" summaries on the timeline |
-| `permission_hooks` | Engine permission prompts → ADE approvals (below) |
+| `permission_hooks` | Engine permission prompts → Foundry approvals (below) |
 | `mcp` | Org-tools via MCP (else CLI-shim fallback) |
 
 The UI and telemetry read `capabilities()` and degrade per feature (philosophy rule 5): an engine without `stream_events` shows run start/end and final output; one without `usage` shows "cost unreported". **Degradation is visible, not silent** — the agent page shows its engine's observability grade, so a human choosing an engine sees the trade.
@@ -151,7 +151,7 @@ Adapters translate engine-native output into a small event vocabulary: `run_star
 
 - Spawns `claude -p` headless with `--output-format stream-json` in the workstream workspace; maps the stream to normalized events; captures session id for `resume` (`--resume <id>`).
 - Injects org-tools as an MCP server via generated config.
-- Declares every optional capability, including `permission_hooks`: engine permission prompts become ADE `request_approval` items in the human inbox; grant/deny flows back. Permission *policy* (which mode, which tools pre-allowed) comes from ADE agent policy (07), translated to engine flags.
+- Declares every optional capability, including `permission_hooks`: engine permission prompts become Foundry `request_approval` items in the human inbox; grant/deny flows back. Permission *policy* (which mode, which tools pre-allowed) comes from Foundry agent policy (07), translated to engine flags.
 - Cost/usage from result payloads.
 
 ### The fake adapter (testing keystone)

@@ -8,8 +8,8 @@ Two stores, deliberately boring:
 2. **Filesystem** — things that are naturally files: agent memory directories, artifacts, composed run contexts, engine transcripts. The database stores references and hashes, never blobs.
 
 ```
-~/.ade/  (or project-local .ade/, configurable)
-├── ade.db                    # SQLite: state + events
+~/.foundry/  (or project-local .foundry/, configurable)
+├── foundry.db                    # SQLite: state + events
 ├── agents/<agent-id>/
 │   ├── memory/               # git-versioned markdown memory (below)
 │   └── skills/               # git-versioned procedural memory: SKILL.md per skill (below)
@@ -74,7 +74,7 @@ schedules     (id, agent_id, cron, prompt_md, enabled)   -- wake agents on a cad
 
 ## Backup & integrity
 
-Single-file DB + one directory tree ⇒ backup is `sqlite3 .backup` + rsync/snapshot of `~/.ade`. V1 ships a `ade backup` CLI command and a daily reminder-event if none has run; anything fancier (streaming replication) belongs to server mode. Artifacts are content-addressed (sha256) so corruption is detectable; memory is git-versioned so it is diffable and restorable by nature.
+Single-file DB + one directory tree ⇒ backup is `sqlite3 .backup` + rsync/snapshot of `~/.foundry`. V1 ships a `foundry backup` CLI command and a daily reminder-event if none has run; anything fancier (streaming replication) belongs to server mode. Artifacts are content-addressed (sha256) so corruption is detectable; memory is git-versioned so it is diffable and restorable by nature.
 
 ---
 

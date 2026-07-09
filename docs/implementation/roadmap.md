@@ -38,7 +38,7 @@ graph LR
 
 ---
 
-## E1 — Domain core (`@ade/core`) ⚠ KEYSTONE (whole epic)
+## E1 — Domain core (`@foundry/core`) ⚠ KEYSTONE (whole epic)
 
 The contract everyone else builds against. Freeze before fan-out.
 
@@ -50,7 +50,7 @@ The contract everyone else builds against. Freeze before fan-out.
 | **E1.4** Org-tool + API DTO schemas, error codes | All contracts.md shapes present; policy error codes enumerated; MCP tool schemas derive from the same Zod definitions |
 | **E1.5** ULID ids, ref types (`artifact:`, `workstream:`, …) | Parse/format round-trip; sortability test |
 
-## E2 — Store (`@ade/store`)
+## E2 — Store (`@foundry/store`)
 
 | Story | AC |
 |---|---|
@@ -60,7 +60,7 @@ The contract everyone else builds against. Freeze before fan-out.
 | **E2.4** Event feed: `after(seq)`, in-process `subscribe`, filters | Replay-after-reconnect test: no gaps, no dupes |
 | **E2.5** Projections: orgView, agentPage, inbox, timeline, delegationTree, costRollup | Each projection has fixture→snapshot tests; **agent status derivation matches the doc-02 precedence table case by case** |
 | **E2.6** Run-delta compaction → transcript file | Post-compaction: timeline still renders from transcript; table rows pruned; audit fields retained |
-| **E2.7** Artifact store (content-addressed) + `ade backup` | sha256 verify on read; backup/restore round-trip test |
+| **E2.7** Artifact store (content-addressed) + `foundry backup` | sha256 verify on read; backup/restore round-trip test |
 
 ## E3 — Adapter contract + fake engine
 
@@ -70,7 +70,7 @@ The contract everyone else builds against. Freeze before fan-out.
 | **E3.2** ⚠ Conformance suite `describeAdapterContract` | Covers lifecycle, cancel, event ordering, exactly-one `run_ended`, capability honesty |
 | **E3.3** Fake adapter: scenario-file driven (emit events, sleep, hang, crash, call org-tools, burn simulated usage) | Passes conformance; scenario DSL documented; ships ≥12 canned scenarios incl. every doc-07 failure mode it can express |
 
-## E4 — Runtime (`@ade/runtime`)
+## E4 — Runtime (`@foundry/runtime`)
 
 | Story | AC |
 |---|---|
@@ -91,7 +91,7 @@ The contract everyone else builds against. Freeze before fan-out.
 | **E5.4** Query endpoints = store projections 1:1 | Contract tests: response shapes match core DTOs |
 | **E5.5** SSE event feed with `after` replay | Disconnect/reconnect test: zero gap, zero dupe (F13) |
 | **E5.6** ⚠ Context composition (fixed section order, `input_context_ref` recorded, memory index inclusion) | Composed file matches golden fixtures per trigger type; recorded per run |
-| **E5.7** `ade` CLI: init, daemon start/stop, agent create, backup | Smoke test on fresh machine path |
+| **E5.7** `foundry` CLI: init, daemon start/stop, agent create, backup | Smoke test on fresh machine path |
 
 ## E6 — Org-tools + policy engine
 
@@ -129,9 +129,9 @@ UI lane starts against fixture projections (from E2.5 snapshots) — no live ser
 | Story | AC |
 |---|---|
 | **E9.1** ⚠ Headless spawn + stream-json → `EngineEvent` mapping + session capture | Conformance suite green on recorded fixtures; fixture-refresh procedure documented |
-| **E9.2** Org-tools MCP injection via generated config | Recorded fixture proves a real `delegate_task` tool call lands in ADE |
+| **E9.2** Org-tools MCP injection via generated config | Recorded fixture proves a real `delegate_task` tool call lands in Foundry |
 | **E9.3** Resume, cancel, usage mapping | `--resume` round-trip on fixtures; usage totals match fixture payloads |
-| **E9.4** Permission hooks → ADE approvals | Engine permission prompt fixture ⇒ approval item ⇒ grant flows back |
+| **E9.4** Permission hooks → Foundry approvals | Engine permission prompt fixture ⇒ approval item ⇒ grant flows back |
 | **E9.5** Nightly live-CLI lane (manual trigger, spend-capped) | One real happy-path run green against installed CLI |
 
 ## E10 — Inbox, delegation tree, cost
@@ -161,7 +161,7 @@ UI lane starts against fixture projections (from E2.5 snapshots) — no live ser
 | **E12.2** Failure-mode suite: every doc-07 F# with an expressible fake scenario | All green; each failure produces its inbox item and complete event trail |
 | **E12.3** Multi-level org scenario: 3 teams, 8 agents, human delegates root → 3-level tree → delivery chain → root acceptance | Delegation tree view, inbox, and cost rollups all correct at each stage |
 | **E12.4** Docs: install/quickstart, "create your first specialist", adapter-author guide | A new machine reaches first-real-run following the quickstart alone |
-| **E12.5** Dogfood: run ADE's own remaining backlog through ADE with 2–3 specialists | One week of real use; every "I missed something important" filed as P1 (Risk 3) |
+| **E12.5** Dogfood: run Foundry's own remaining backlog through Foundry with 2–3 specialists | One week of real use; every "I missed something important" filed as P1 (Risk 3) |
 
 ---
 

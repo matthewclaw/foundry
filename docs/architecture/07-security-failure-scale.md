@@ -15,7 +15,7 @@ external content (web, repos, deps) ──── untrusted ────► runs
 ```
 
 1. **Human → control plane**: trusted. V1 auth is the local machine boundary (localhost bind, OS user). Server mode adds real authn/z on the same API.
-2. **Control plane → run**: the run is a constrained worker. Its org-tools credential is scoped to (agent, run) and expires with the run (03). Its engine permissions come from ADE policy translated to engine flags — the org/team/agent policy chain defines tool allowlists, permission mode, and which actions require approval. Engine permission prompts surface as ADE approvals (claude-code adapter, 03).
+2. **Control plane → run**: the run is a constrained worker. Its org-tools credential is scoped to (agent, run) and expires with the run (03). Its engine permissions come from Foundry policy translated to engine flags — the org/team/agent policy chain defines tool allowlists, permission mode, and which actions require approval. Engine permission prompts surface as Foundry approvals (claude-code adapter, 03).
 3. **Agent → agent**: **untrusted, always** (challenge C3). Provenance-wrapped in context; `redirect` authority restricted to the delegator chain and the human (04); privilege boundaries (deploy, push to main, spend raises) can never be crossed on another agent's say-so — they require approvals.
 
 ### Prompt injection stance
@@ -29,9 +29,9 @@ Residual risk stated plainly: a poisoned agent can still waste its own budget an
 
 ### Secrets
 
-- ADE never stores engine API keys; engines use their own auth (e.g. `claude` login).
+- Foundry never stores engine API keys; engines use their own auth (e.g. `claude` login).
 - Event payloads and composed contexts are secret-redacted at write time via configurable patterns (belt-and-braces; the log is forever, so hygiene at the source).
-- Workspace secrets (`.env` etc.) are governed by engine tool permissions, same as when a human runs the engine — ADE adds the policy layer, it doesn't replace engine sandboxing.
+- Workspace secrets (`.env` etc.) are governed by engine tool permissions, same as when a human runs the engine — Foundry adds the policy layer, it doesn't replace engine sandboxing.
 
 ### Audit
 

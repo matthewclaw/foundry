@@ -2,7 +2,7 @@
 
 ## Core Concepts
 
-Eight nouns. Everything in ADE is one of these or a projection of them.
+Eight nouns. Everything in Foundry is one of these or a projection of them.
 
 | Concept | One-liner | Lifetime |
 |---|---|---|
@@ -163,7 +163,7 @@ draft ─────────► active ◄──────► suspended
 
 **Life.** The agent accumulates: closed workstreams, delivered tasks, given/received reviews, memory files. Its charter is versioned and human-editable at any time ("mentoring" in charter terms is literally editing the charter and memory, and the diff is an event).
 
-**Identity across engines.** `engine` is a binding, not an identity. Rebinding emits an event and nothing else changes. Open workstreams with engine-session state complete on the old engine or restart contextually on the new one (context is recomposed from ADE state — this is why input context lives in ADE, not only inside the engine's session).
+**Identity across engines.** `engine` is a binding, not an identity. Rebinding emits an event and nothing else changes. Open workstreams with engine-session state complete on the old engine or restart contextually on the new one (context is recomposed from Foundry state — this is why input context lives in Foundry, not only inside the engine's session).
 
 **Death.** Never deletion. `retired` agents disappear from active views but remain queryable; their work history remains attributed. (Auditability, and also the honest answer to "who wrote this?" a year later.)
 

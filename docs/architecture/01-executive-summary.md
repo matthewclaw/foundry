@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-ADE is an operating environment for organisations of persistent AI specialists. It is a **control plane**: it owns identity, memory, conversations, delegation, communication, policy, and observability, and it treats execution engines (Claude Code, Codex CLI, future tools) as interchangeable workers underneath it.
+Foundry is an operating environment for organisations of persistent AI specialists. It is a **control plane**: it owns identity, memory, conversations, delegation, communication, policy, and observability, and it treats execution engines (Claude Code, Codex CLI, future tools) as interchangeable workers underneath it.
 
 The architecture rests on five decisions. Everything else follows from them.
 
@@ -76,7 +76,7 @@ The charter's philosophy is adopted wholesale; these are the operating rules the
 
 ## System Vision
 
-Morning. You open ADE. The org view shows five teams, twenty-three specialists. Twenty are idle (grey, free). Two are active — you can see the Backend Engineer is three runs into the auth refactor workstream, burning within budget. One is blocked — red, with the reason attached: it escalated a schema-change decision overnight.
+Morning. You open Foundry. The org view shows five teams, twenty-three specialists. Twenty are idle (grey, free). Two are active — you can see the Backend Engineer is three runs into the auth refactor workstream, burning within budget. One is blocked — red, with the reason attached: it escalated a schema-change decision overnight.
 
 Your inbox has four items, ranked: the escalation (decision needed), a review the Architecture agent requested of *you*, a completed task from yesterday awaiting your acceptance, and a budget-threshold warning on a research workstream. You resolve the escalation with two sentences; the blocked agent's next run is scheduled automatically with your answer in context.
 
