@@ -5,6 +5,19 @@ concept or field but don't pin down its exact shape, or where a literal reading 
 ambiguous. Each was resolved with a concrete, documented choice so E1 could ship without
 blocking downstream lanes — flagging here for review rather than silent deviation.
 
+> **Architect review, 2026-07-09: all 11 resolutions APPROVED as the binding reading.**
+> Per contracts.md, the Zod schemas in `@foundry/core` are now the single source of truth
+> for these shapes (Budget, Usage, RoutingSpec, DeliverableRef, Policy); the architecture
+> docs describe them, core defines them. Notes on three items:
+> - **#6 (workstream edges):** the implemented graph is the intended one — `waiting → blocked`
+>   is valid (a waiting workstream's blocker can be discovered), and close-from-any-non-terminal
+>   matches the API contract.
+> - **#7 (rejection escalation):** correct — escalation is a message-level side effect;
+>   do NOT add a task state for it.
+> - **#8 (`canTransitionDisposition`):** the sibling function is the right call; an
+>   overloaded `canTransition` would be the surprising API. E2+ consumers build against
+>   both as shipped.
+
 ---
 
 ## 1. `Budget` shape (05 `budget_json`, 02 Workstream/Task `budget`)
