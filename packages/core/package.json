@@ -16,7 +16,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "generate:catalogue": "node scripts/generate-catalogue.mjs"
   },
   "dependencies": {
     "ulid": "^2.3.0",
