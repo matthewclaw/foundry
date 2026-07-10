@@ -49,10 +49,16 @@ export function createMutate(db: Db, bus: EventBus): Mutate {
     return { result, events };
   }
 
-  const transactional = db.transaction(runInTransaction);
+  // better-sqlite3's `.transaction()` typing can't preserve a generic function's type
+  // parameter through assignment; the cast below is a compile-time-only bridge back
+  // to the caller's `T` (generics are erased at runtime, so this is sound).
+  const transactional = db.transaction((m: MutateArgs<unknown>) => runInTransaction(m));
 
   return function mutate<T>(m: MutateArgs<T>): T {
-    const { result, events } = transactional(m);
+    const { result, events } = transactional(m as MutateArgs<unknown>) as {
+      result: T;
+      events: Event[];
+    };
     bus.publish(events);
     return result;
   };

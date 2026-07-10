@@ -28,14 +28,14 @@ export function createTask(db: Db, mutate: Mutate, input: CreateTaskInput): Task
   const id = newTaskId();
   const now = new Date().toISOString();
 
-  let rootTaskId: string = id;
+  let rootTaskId: TaskId = id;
   let depth = 0;
   if (input.parent_task_id) {
     const parent = db
       .prepare(`SELECT root_task_id, depth FROM tasks WHERE id = ?`)
       .get(input.parent_task_id) as { root_task_id: string; depth: number } | undefined;
     if (!parent) throw new Error(`Parent task not found: ${input.parent_task_id}`);
-    rootTaskId = parent.root_task_id;
+    rootTaskId = parent.root_task_id as TaskId;
     depth = parent.depth + 1;
   }
 

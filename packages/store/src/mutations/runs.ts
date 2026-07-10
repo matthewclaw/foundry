@@ -79,17 +79,19 @@ export function transitionRunState(
   const event = requireTransitionEvent("run", from, args.to);
 
   const payload: Record<string, unknown> =
-    event === "run_completed"
-      ? { result: args.result }
-      : event === "run_failed"
-        ? { error: args.error ?? "" }
-        : event === "run_awaiting_input"
-          ? { prompt: args.prompt ?? "" }
-          : event === "run_running"
-            ? { engine_session_id: args.engineSessionId ?? null }
-            : event === "run_interrupted" || event === "run_cancelled"
-              ? { reason: args.reason }
-              : {};
+    event === "run_started"
+      ? { engine: (db.prepare(`SELECT engine_id FROM runs WHERE id = ?`).get(args.id) as { engine_id: string }).engine_id }
+      : event === "run_completed"
+        ? { result: args.result }
+        : event === "run_failed"
+          ? { error: args.error ?? "" }
+          : event === "run_awaiting_input"
+            ? { prompt: args.prompt ?? "" }
+            : event === "run_running"
+              ? { engine_session_id: args.engineSessionId ?? null }
+              : event === "run_interrupted" || event === "run_cancelled"
+                ? { reason: args.reason }
+                : {};
 
   mutate({
     apply: (tx) => {

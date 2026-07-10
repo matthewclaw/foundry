@@ -12,6 +12,7 @@ import {
   type TeamId,
   type Thread,
   type ThreadAnchorType,
+  type ThreadId,
 } from "@foundry/core";
 import type { Db } from "../db/connection.js";
 import type { Mutate } from "../types.js";
@@ -39,7 +40,7 @@ export function getOrCreateThread(db: Db, mutate: Mutate, anchorType: ThreadAnch
 }
 
 export interface SendMessageInput {
-  thread_id: string;
+  thread_id: ThreadId;
   from_actor_id: ActorId;
   to_actor_id?: ActorId | null;
   to_team_id?: TeamId | null;
