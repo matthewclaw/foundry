@@ -37,6 +37,13 @@ export interface RuntimeOptions {
    * the world when the run actually starts, e.g. after queue delay.
    */
   composeContext(args: { run: Run; workstream: Workstream; agent: Agent }): string | Promise<string>;
+  /**
+   * E6.1 hook: mint the per-run org-tools credential (server owns the token registry;
+   * this layer only threads it into the RunSpec). Revoked when the run's execute
+   * settles, however it ends — run end is credential expiry.
+   */
+  mintRunCredential?(args: { run: Run; agent: Agent }): { mcpConfig?: object; cliEnv?: Record<string, string> };
+  revokeRunCredential?(run: Run): void;
   limits?: RunQueueLimits;
   defaultWallClockMs?: number;
   defaultStallMs?: number;
@@ -106,11 +113,16 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       }
 
       const contextFile = await opts.composeContext({ run, workstream, agent });
-      await supervisor.execute(run, {
-        ...job,
-        inputContextRef: contextFile,
-        workspaceDir: acquired.workspaceDir,
-      });
+      try {
+        await supervisor.execute(run, {
+          ...job,
+          inputContextRef: contextFile,
+          workspaceDir: acquired.workspaceDir,
+          orgTools: opts.mintRunCredential?.({ run, agent }) ?? job.orgTools,
+        });
+      } finally {
+        opts.revokeRunCredential?.(run);
+      }
     } catch (err) {
       // The queue fires execute() and forgets it — a throw here would otherwise be an
       // unhandled rejection AND a run stranded in a non-terminal state. Fold instead.

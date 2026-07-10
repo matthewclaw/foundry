@@ -13,10 +13,12 @@ import { createStore, type Store } from "@foundry/store";
 import { createRuntime, type AdapterRegistry, type Runtime, type RunQueueLimits } from "@foundry/runtime";
 import { composeContext } from "./context/compose.js";
 import { problemErrorHandler } from "./problem.js";
+import { createTokenRegistry, type TokenRegistry } from "./orgtools/tokens.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerWorkstreamRoutes } from "./routes/workstreams.js";
 import { registerQueryRoutes } from "./routes/queries.js";
 import { registerFeedRoutes } from "./routes/feed.js";
+import { registerOrgToolRoutes } from "./routes/orgtools.js";
 
 export interface ServerConfig {
   dataDir: string;
@@ -34,6 +36,7 @@ export interface FoundryServer {
   app: FastifyInstance;
   store: Store;
   runtime: Runtime;
+  tokens: TokenRegistry;
   /** migrate (createStore) → reconcile (F3/F7) → listen. Returns the bound address. */
   start(): Promise<string>;
   stop(): Promise<void>;
@@ -42,6 +45,10 @@ export interface FoundryServer {
 export function createServer(config: ServerConfig): FoundryServer {
   mkdirSync(config.dataDir, { recursive: true });
   const store = createStore({ dataDir: config.dataDir, dbPath: config.dbPath });
+  const tokens = createTokenRegistry();
+  // Known once listen() returns; runs enqueued before that mint URL-less credentials
+  // (fine — nothing can call the API before it listens either).
+  let baseUrl = "";
   const runtime = createRuntime({
     store,
     adapters: config.adapters,
@@ -51,6 +58,19 @@ export function createServer(config: ServerConfig): FoundryServer {
     defaultStallMs: config.defaultStallMs,
     composeContext: ({ run, workstream, agent }) =>
       composeContext({ store, dataDir: config.dataDir, run, workstream, agent }),
+    // E6.1: per-run scoped credential — minted at run start, revoked when the run's
+    // execute settles. The engine reaches org-tools via env (CLI shim) or mcpConfig
+    // (E6.2/E9.2 wire the MCP side).
+    mintRunCredential: ({ run, agent }) => {
+      const token = tokens.mint({ runId: run.id, agentId: agent.id, actorId: agent.actor_id });
+      return {
+        cliEnv: {
+          FOUNDRY_ORG_TOOLS_URL: `${baseUrl}/api/org-tools`,
+          FOUNDRY_ORG_TOOLS_TOKEN: token,
+        },
+      };
+    },
+    revokeRunCredential: (run) => tokens.revokeRun(run.id),
   });
 
   const app = Fastify({ logger: false });
@@ -58,16 +78,18 @@ export function createServer(config: ServerConfig): FoundryServer {
 
   app.get("/api/health", async () => ({ ok: true }));
 
-  const ctx = { store, runtime };
+  const ctx: RouteContext = { store, runtime, tokens };
   registerAgentRoutes(app, ctx);
   registerWorkstreamRoutes(app, ctx);
   registerQueryRoutes(app, ctx);
   registerFeedRoutes(app, ctx);
+  registerOrgToolRoutes(app, ctx);
 
   return {
     app,
     store,
     runtime,
+    tokens,
     async start() {
       const reconciled = await runtime.reconcileOnStartup();
       store.mutate({
@@ -83,7 +105,9 @@ export function createServer(config: ServerConfig): FoundryServer {
         ],
       });
       void reconciled;
-      return app.listen({ host: config.host ?? "127.0.0.1", port: config.port ?? 0 });
+      const address = await app.listen({ host: config.host ?? "127.0.0.1", port: config.port ?? 0 });
+      baseUrl = address;
+      return address;
     },
     async stop() {
       await app.close();
@@ -92,8 +116,10 @@ export function createServer(config: ServerConfig): FoundryServer {
   };
 }
 
-/** Shared route-module context: every module gets the same two capabilities. */
+/** Shared route-module context. */
 export interface RouteContext {
   store: Store;
   runtime: Runtime;
+  /** E6.1: per-run org-tools credentials (mint on run start, dead at run end). */
+  tokens: TokenRegistry;
 }
