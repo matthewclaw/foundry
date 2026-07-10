@@ -13,13 +13,18 @@ import type { EngineEvent, ExecutionAdapter, RunSpec } from "@foundry/adapter-ap
 import type { RunQueueJob } from "../scheduler/queue.js";
 
 export interface RunSupervisorOptions {
-  store: Pick<Store, "commands" | "workstreams">;
+  store: Pick<Store, "commands" | "workstreams" | "runs">;
   /** Adapter registry keyed by engine id (contracts.md: Runtime "configured with Store + adapter registry"). */
   adapters: Record<string, ExecutionAdapter>;
   defaultWallClockMs?: number;
+  /** Default stall timeout: no event from adapter for this duration triggers cancellation. */
+  defaultStallMs?: number;
+  /** Optional budget caps: if cumulative usage exceeds any cap, the run is cancelled. */
+  budgetCaps?: { tokensIn?: number; tokensOut?: number; costUsd?: number };
 }
 
 const DEFAULT_WALL_CLOCK_MS = 10 * 60 * 1000;
+const DEFAULT_STALL_MS = 5 * 60 * 1000; // 5 minutes
 
 export function createRunSupervisor(opts: RunSupervisorOptions) {
   async function execute(run: Run, job: RunQueueJob): Promise<void> {
@@ -47,8 +52,138 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
 
     const handle = await adapter.start(spec);
 
-    for await (const event of adapter.events(handle)) {
-      handleEvent(run, job, event);
+    // Watchdog state: track running totals for budget and timers
+    const wallClockMs = spec.limits.wallClockMs;
+    const stallMs = opts.defaultStallMs ?? DEFAULT_STALL_MS;
+    const startTime = Date.now();
+    let lastEventTime = Date.now();
+    let tokensInTotal = 0;
+    let tokensOutTotal = 0;
+    let costUsdTotal = 0;
+    let cancelled = false;
+
+    // Manual async iterator for racing against watchdogs
+    const eventIterator = adapter.events(handle)[Symbol.asyncIterator]();
+    let sawRunEnded = false;
+    const WATCHDOG_TIMEOUT = Symbol("watchdog-timeout");
+
+    try {
+      for (;;) {
+        // Check wall-clock timeout before attempting to get next event
+        const elapsedWallClock = Date.now() - startTime;
+        if (elapsedWallClock >= wallClockMs && !cancelled) {
+          cancelled = true;
+          await adapter.cancel(handle);
+        }
+
+        // Check stall timeout before attempting to get next event
+        const elapsedStall = Date.now() - lastEventTime;
+        if (elapsedStall >= stallMs && !cancelled) {
+          cancelled = true;
+          await adapter.cancel(handle);
+        }
+
+        // Race next event against wall-clock and stall timers
+        const wallClockTimeoutMs = wallClockMs - (Date.now() - startTime);
+        const stallTimeoutMs = stallMs - (Date.now() - lastEventTime);
+        const minTimeoutMs = Math.min(
+          wallClockTimeoutMs > 0 ? wallClockTimeoutMs : Infinity,
+          stallTimeoutMs > 0 ? stallTimeoutMs : Infinity
+        );
+
+        let raced: IteratorResult<EngineEvent> | typeof WATCHDOG_TIMEOUT;
+
+        if (!isFinite(minTimeoutMs)) {
+          // Both watchdogs already tripped (or disabled) — just wait for the adapter to
+          // respond to the cancel() already issued above, no artificial timeout needed.
+          raced = await eventIterator.next();
+        } else {
+          const timeoutPromise = new Promise<typeof WATCHDOG_TIMEOUT>((resolve) => {
+            setTimeout(() => resolve(WATCHDOG_TIMEOUT), Math.max(0, minTimeoutMs));
+          });
+          raced = await Promise.race([eventIterator.next(), timeoutPromise]);
+        }
+
+        if (raced === WATCHDOG_TIMEOUT) {
+          // Not real stream exhaustion — just a tick to let the top-of-loop checks above
+          // re-evaluate and actually call adapter.cancel() once a threshold is crossed.
+          continue;
+        }
+
+        if (raced.done) {
+          break; // Iterator genuinely exhausted
+        }
+
+        const event = raced.value;
+        lastEventTime = Date.now();
+
+        // Accumulate budget on usage_delta events
+        if (event.t === "usage_delta") {
+          if (event.tokensIn !== undefined) tokensInTotal += event.tokensIn;
+          if (event.tokensOut !== undefined) tokensOutTotal += event.tokensOut;
+          if (event.costUsd !== undefined) costUsdTotal += event.costUsd;
+
+          // Check if budget exceeded
+          if (opts.budgetCaps && !cancelled) {
+            if (
+              opts.budgetCaps.tokensIn !== undefined &&
+              tokensInTotal > opts.budgetCaps.tokensIn
+            ) {
+              cancelled = true;
+              await adapter.cancel(handle);
+            } else if (
+              opts.budgetCaps.tokensOut !== undefined &&
+              tokensOutTotal > opts.budgetCaps.tokensOut
+            ) {
+              cancelled = true;
+              await adapter.cancel(handle);
+            } else if (opts.budgetCaps.costUsd !== undefined && costUsdTotal > opts.budgetCaps.costUsd) {
+              cancelled = true;
+              await adapter.cancel(handle);
+            }
+          }
+        }
+
+        if (event.t === "run_ended") sawRunEnded = true;
+        handleEvent(run, job, event);
+      }
+    } catch {
+      // Adapter stream ended abnormally (F1: process crash) — folded below, same as a
+      // watchdog-forced cancel (F2) that the adapter doesn't acknowledge gracefully.
+    }
+    if (!sawRunEnded) {
+      foldAbnormalTermination(run, job);
+    }
+  }
+
+  /**
+   * The event stream ended (threw, or the iterable just completed) without a `run_ended`
+   * — an engine crash (F1) or a forced watchdog interrupt (F2) the adapter didn't
+   * acknowledge with a graceful terminal event. Folds into whatever the run's current
+   * state allows: `starting` (never got going) → `failed`; `running`/`awaiting_input`/
+   * `awaiting_approval` (was actually underway) → `interrupted`, resumable per E4.6.
+   */
+  function foldAbnormalTermination(run: Run, job: RunQueueJob): void {
+    const current = opts.store.runs.get(run.id);
+    if (!current) return;
+    if (current.state === "starting") {
+      opts.store.commands.transitionRunState({
+        id: run.id,
+        workstreamId: job.workstreamId,
+        to: "failed",
+        actorId: null,
+        error: "adapter stream ended before the run started",
+      });
+      return;
+    }
+    if (current.state === "running" || current.state === "awaiting_input" || current.state === "awaiting_approval") {
+      opts.store.commands.transitionRunState({
+        id: run.id,
+        workstreamId: job.workstreamId,
+        to: "interrupted",
+        actorId: null,
+        reason: "adapter stream ended abnormally",
+      });
     }
   }
 
