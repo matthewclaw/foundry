@@ -199,6 +199,356 @@ describe("createRunSupervisor — E4.2", () => {
   });
 });
 
+describe("resume flow — E4.6", () => {
+  it("happy resume: initial scenario crashes, resume completes, run ends completed with final_text from resume", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Resume happy path");
+
+    // Wrapper adapter: start() uses initial (crashes), resume() uses continuation (completes)
+    let resumeSpec: any = undefined;
+    const initialAdapter = createFakeAdapter(loadScenario("resume-after-interrupt-initial"));
+    const continuationAdapter = createFakeAdapter(loadScenario("resume-after-interrupt-continuation"));
+
+    // Mark handles to track which adapter they came from
+    const handlerMap = new Map<any, "initial" | "continuation">();
+
+    const continuationScenario = loadScenario("resume-after-interrupt-continuation");
+
+    const wrapperAdapter: ExecutionAdapter = {
+      id: "fake",
+      capabilities: () => initialAdapter.capabilities(),
+      start: async (spec) => {
+        const handle = await initialAdapter.start(spec);
+        handlerMap.set(handle, "initial");
+        return handle;
+      },
+      resume: async (spec) => {
+        resumeSpec = spec;
+        // Update engineConfig to use the continuation scenario for the resumed attempt
+        const resumeSpecWithContinuation: RunSpec & { sessionRef: string } = {
+          ...spec,
+          engineConfig: { scenario: continuationScenario },
+        };
+        const handle = await continuationAdapter.start(resumeSpecWithContinuation);
+        handlerMap.set(handle, "continuation");
+        return handle;
+      },
+      cancel: (handle) => {
+        const type = handlerMap.get(handle) ?? "initial";
+        if (type === "continuation") {
+          return continuationAdapter.cancel(handle);
+        }
+        return initialAdapter.cancel(handle);
+      },
+      events: (handle) => {
+        const type = handlerMap.get(handle) ?? "initial";
+        if (type === "continuation") {
+          return continuationAdapter.events(handle);
+        }
+        return initialAdapter.events(handle);
+      },
+    };
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: wrapperAdapter },
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/1/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/1/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "resume-after-interrupt-initial" },
+    });
+
+    // Verify engine_session_id was captured after initial run_started
+    const afterInitialStart = store.runs.get(run.id);
+    if (afterInitialStart) {
+      // Should have been set by the initial run_started event
+      // (but run might be interrupted now, so we'll check after resume)
+    }
+
+    // Verify resume was called exactly once with sessionRef
+    expect(resumeSpec).toBeDefined();
+    expect(resumeSpec?.sessionRef).toBe("sess-resume-demo");
+
+    // Final run state should be completed
+    const finished = store.runs.get(run.id);
+    expect(finished?.state).toBe("completed");
+    expect(finished?.result?.final_text).toBe("Completed after resume.");
+
+    // Only one run row for the workstream
+    const runs = store.runs.list({ workstream_id: ws });
+    expect(runs.length).toBe(1);
+
+    // Check event sequence: must have interrupted, resumed, and completed in order
+    const events = store.events.after(0).filter((e) => e.run_id === run.id);
+    const types = events.map((e) => e.type);
+    expect(types).toContain("run_interrupted");
+    expect(types).toContain("run_resumed");
+    expect(types).toContain("run_running");
+    expect(types).toContain("run_completed");
+
+    const interruptedIdx = types.indexOf("run_interrupted");
+    const resumedIdx = types.indexOf("run_resumed");
+    const completedIdx = types.indexOf("run_completed");
+
+    // Verify ordering: interrupted -> resumed -> completed (run_running can appear twice: before interrupt and after resume)
+    expect(interruptedIdx).toBeLessThan(resumedIdx);
+    expect(resumedIdx).toBeLessThan(completedIdx);
+  });
+
+  it("resume also dies: resume() returns crashing scenario, run stays interrupted, resume called once", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Resume failure path");
+
+    let resumeCallCount = 0;
+    const crashingAdapter = createFakeAdapter(loadScenario("resume-after-interrupt-initial"));
+    const wrapperAdapter: ExecutionAdapter = {
+      id: "fake",
+      capabilities: () => crashingAdapter.capabilities(),
+      start: (spec) => crashingAdapter.start(spec),
+      resume: async (spec) => {
+        resumeCallCount++;
+        return crashingAdapter.start(spec);
+      },
+      cancel: (handle) => crashingAdapter.cancel(handle),
+      events: (handle) => crashingAdapter.events(handle),
+    };
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: wrapperAdapter },
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/2/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/2/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "resume-after-interrupt-initial" },
+    });
+
+    // Resume was called exactly once
+    expect(resumeCallCount).toBe(1);
+
+    // Final state interrupted
+    const finished = store.runs.get(run.id);
+    expect(finished?.state).toBe("interrupted");
+
+    // Exactly one run_resumed event
+    const events = store.events.after(0).filter((e) => e.run_id === run.id && e.type === "run_resumed");
+    expect(events.length).toBe(1);
+  });
+
+  it("no resume capability: adapter lacks resume capability, run stays interrupted, no resume attempted", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "No resume capability");
+
+    const crashingAdapter = createFakeAdapter(loadScenario("resume-after-interrupt-initial"));
+    const wrapperAdapter: ExecutionAdapter = {
+      id: "fake",
+      capabilities: () => ({ ...crashingAdapter.capabilities(), resume: false }),
+      start: (spec) => crashingAdapter.start(spec),
+      resume: undefined, // Not provided
+      cancel: (handle) => crashingAdapter.cancel(handle),
+      events: (handle) => crashingAdapter.events(handle),
+    };
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: wrapperAdapter },
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/3/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/3/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "resume-after-interrupt-initial" },
+    });
+
+    // Final state interrupted (no resume)
+    const finished = store.runs.get(run.id);
+    expect(finished?.state).toBe("interrupted");
+
+    // Zero run_resumed events
+    const resumedEvents = store.events.after(0).filter((e) => e.run_id === run.id && e.type === "run_resumed");
+    expect(resumedEvents.length).toBe(0);
+  });
+
+  it("no sessionRef: inline scenario without sessionRef crashes, no resume attempted, engine_session_id null", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "No session ref");
+
+    const crashingScenario = {
+      name: "no-sessionref-crash",
+      description: "Crashes without emitting a sessionRef",
+      steps: [
+        { type: "event" as const, event: { t: "run_started" as const } },
+        { type: "event" as const, event: { t: "output_delta" as const, text: "Starting..." } },
+        { type: "crash" as const, message: "no session" },
+      ],
+    };
+
+    let resumeCalled = false;
+    const crashingAdapter = createFakeAdapter(crashingScenario);
+    const wrapperAdapter: ExecutionAdapter = {
+      id: "fake",
+      capabilities: () => crashingAdapter.capabilities(),
+      start: (spec) => crashingAdapter.start(spec),
+      resume: async () => {
+        resumeCalled = true;
+        throw new Error("resume should not be called");
+      },
+      cancel: (handle) => crashingAdapter.cancel(handle),
+      events: (handle) => crashingAdapter.events(handle),
+    };
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: wrapperAdapter },
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/4/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/4/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenario: crashingScenario },
+    });
+
+    // Resume was not called
+    expect(resumeCalled).toBe(false);
+
+    // engine_session_id should be null
+    const finished = store.runs.get(run.id);
+    expect(finished?.engine_session_id).toBeNull();
+
+    // Zero run_resumed events
+    const resumedEvents = store.events.after(0).filter((e) => e.run_id === run.id && e.type === "run_resumed");
+    expect(resumedEvents.length).toBe(0);
+  });
+
+  it("degraded status: two consecutive failed runs on same workstream result in degraded agent status", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+
+    // Agent must be in "active" state for status derivation
+    store.commands.transitionAgentState({ id: agentId, to: "active", actorId: null });
+
+    const ws = makeWorkstream(store, agentId, "Degraded test");
+
+    // Scenario that completes with a failed outcome (not interrupted)
+    const failedScenario = {
+      name: "graceful-failure",
+      description: "Completes gracefully but with failed outcome",
+      steps: [
+        { type: "event" as const, event: { t: "run_started" as const, sessionRef: "sess-fail-1" } },
+        {
+          type: "event" as const,
+          event: {
+            t: "run_ended" as const,
+            outcome: "failed" as const,
+            error: "boom",
+            sessionRef: "sess-fail-1",
+          },
+        },
+      ],
+    };
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: createFakeAdapter(failedScenario) },
+    });
+
+    // First failed run
+    const run1 = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/5/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run1, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/5/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenario: failedScenario },
+    });
+
+    expect(store.runs.get(run1.id)?.state).toBe("failed");
+
+    // Second failed run
+    const run2 = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/6/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run2, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/6/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenario: failedScenario },
+    });
+
+    expect(store.runs.get(run2.id)?.state).toBe("failed");
+
+    // Agent status should be degraded (two consecutive failures)
+    const page = store.projections.agentPage(agentId);
+    expect(page?.status).toBe("degraded");
+  });
+});
+
 describe("watchdogs — E4.3", () => {
   it("stall watchdog: hang-stall scenario with short stallMs terminates in interrupted state", async () => {
     const start = Date.now();

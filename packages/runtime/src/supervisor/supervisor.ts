@@ -14,7 +14,7 @@ import type { RunQueueJob } from "../scheduler/queue.js";
 import type { PidRegistry } from "../reconcile/reconcile.js";
 
 export interface RunSupervisorOptions {
-  store: Pick<Store, "commands" | "workstreams" | "runs">;
+  store: Pick<Store, "commands" | "workstreams" | "runs" | "events">;
   /** Adapter registry keyed by engine id (contracts.md: Runtime "configured with Store + adapter registry"). */
   adapters: Record<string, ExecutionAdapter>;
   defaultWallClockMs?: number;
@@ -30,45 +30,29 @@ const DEFAULT_WALL_CLOCK_MS = 10 * 60 * 1000;
 const DEFAULT_STALL_MS = 5 * 60 * 1000; // 5 minutes
 
 export function createRunSupervisor(opts: RunSupervisorOptions) {
-  async function execute(run: Run, job: RunQueueJob): Promise<void> {
-    const adapter = opts.adapters[job.engineId];
-    if (!adapter) throw new Error(`no adapter registered for engine "${job.engineId}"`);
-
-    ensureWorkstreamRunnable(job);
-
-    opts.store.commands.transitionRunState({
-      id: run.id,
-      workstreamId: job.workstreamId,
-      to: "starting",
-      actorId: null,
-    });
-
-    const spec: RunSpec = {
-      runId: run.id,
-      agentName: job.agentName ?? "",
-      contextFile: job.inputContextRef,
-      workspaceDir: job.workspaceDir ?? "",
-      orgTools: job.orgTools ?? {},
-      engineConfig: job.engineConfig,
-      limits: { wallClockMs: job.wallClockMs ?? opts.defaultWallClockMs ?? DEFAULT_WALL_CLOCK_MS },
-    };
-
-    const handle = await adapter.start(spec);
-    // F7: while this stream is live, the engine process (if the adapter spawned a real
-    // one) is registered so a control-plane restart can sweep it as an orphan (E4.5).
-    if (opts.pids && typeof handle.pid === "number") opts.pids.register(run.id, handle.pid);
-
-    // Watchdog state: track running totals for budget and timers
+  /**
+   * E4.6: supervises a stream (start or resume) end-to-end — races watchdogs
+   * against the event iterator, accumulates budget, handles events, and returns
+   * whether a run_ended was observed and the final budget totals.
+   * Keeps the exact watchdog semantics of the original execute loop.
+   */
+  async function superviseStream(
+    run: Run,
+    job: RunQueueJob,
+    adapter: ExecutionAdapter,
+    spec: RunSpec,
+    handle: any,
+    startingTotals: { tokensInTotal: number; tokensOutTotal: number; costUsdTotal: number }
+  ): Promise<{ sawRunEnded: boolean; totals: typeof startingTotals }> {
     const wallClockMs = spec.limits.wallClockMs;
     const stallMs = opts.defaultStallMs ?? DEFAULT_STALL_MS;
     const startTime = Date.now();
     let lastEventTime = Date.now();
-    let tokensInTotal = 0;
-    let tokensOutTotal = 0;
-    let costUsdTotal = 0;
+    let tokensInTotal = startingTotals.tokensInTotal;
+    let tokensOutTotal = startingTotals.tokensOutTotal;
+    let costUsdTotal = startingTotals.costUsdTotal;
     let cancelled = false;
 
-    // Manual async iterator for racing against watchdogs
     const eventIterator = adapter.events(handle)[Symbol.asyncIterator]();
     let sawRunEnded = false;
     const WATCHDOG_TIMEOUT = Symbol("watchdog-timeout");
@@ -160,8 +144,42 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
       // Stream over (gracefully or not) — the engine process is no longer ours to sweep.
       if (opts.pids && typeof handle.pid === "number") opts.pids.unregister(run.id);
     }
+    return { sawRunEnded, totals: { tokensInTotal, tokensOutTotal, costUsdTotal } };
+  }
+
+  async function execute(run: Run, job: RunQueueJob): Promise<void> {
+    const adapter = opts.adapters[job.engineId];
+    if (!adapter) throw new Error(`no adapter registered for engine "${job.engineId}"`);
+
+    ensureWorkstreamRunnable(job);
+
+    opts.store.commands.transitionRunState({
+      id: run.id,
+      workstreamId: job.workstreamId,
+      to: "starting",
+      actorId: null,
+    });
+
+    const spec: RunSpec = {
+      runId: run.id,
+      agentName: job.agentName ?? "",
+      contextFile: job.inputContextRef,
+      workspaceDir: job.workspaceDir ?? "",
+      orgTools: job.orgTools ?? {},
+      engineConfig: job.engineConfig,
+      limits: { wallClockMs: job.wallClockMs ?? opts.defaultWallClockMs ?? DEFAULT_WALL_CLOCK_MS },
+    };
+
+    const handle = await adapter.start(spec);
+    // F7: while this stream is live, the engine process (if the adapter spawned a real
+    // one) is registered so a control-plane restart can sweep it as an orphan (E4.5).
+    if (opts.pids && typeof handle.pid === "number") opts.pids.register(run.id, handle.pid);
+
+    const startingTotals = { tokensInTotal: 0, tokensOutTotal: 0, costUsdTotal: 0 };
+    const { sawRunEnded, totals } = await superviseStream(run, job, adapter, spec, handle, startingTotals);
+
     if (!sawRunEnded) {
-      foldAbnormalTermination(run, job);
+      await foldAbnormalTermination(run, job, adapter, spec, totals);
     }
   }
 
@@ -172,7 +190,13 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
    * state allows: `starting` (never got going) → `failed`; `running`/`awaiting_input`/
    * `awaiting_approval` (was actually underway) → `interrupted`, resumable per E4.6.
    */
-  function foldAbnormalTermination(run: Run, job: RunQueueJob): void {
+  async function foldAbnormalTermination(
+    run: Run,
+    job: RunQueueJob,
+    adapter: ExecutionAdapter,
+    spec: RunSpec,
+    carryingTotals: { tokensInTotal: number; tokensOutTotal: number; costUsdTotal: number }
+  ): Promise<void> {
     const current = opts.store.runs.get(run.id);
     if (!current) return;
     if (current.state === "starting") {
@@ -192,6 +216,65 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
         to: "interrupted",
         actorId: null,
         reason: "adapter stream ended abnormally",
+      });
+
+      // E4.6: Auto-resume interrupted runs exactly once if all conditions are met
+      await attemptResume(run, job, adapter, spec, carryingTotals);
+    }
+  }
+
+  /**
+   * E4.6: Attempt to resume an interrupted run if conditions permit.
+   * Conditions: adapter supports resume, run has engine_session_id, never been resumed before.
+   */
+  async function attemptResume(
+    run: Run,
+    job: RunQueueJob,
+    adapter: ExecutionAdapter,
+    spec: RunSpec,
+    carryingTotals: { tokensInTotal: number; tokensOutTotal: number; costUsdTotal: number }
+  ): Promise<void> {
+    // ponytail: guards below enforce the once-only resume contract even across restarts
+    const current = opts.store.runs.get(run.id);
+    if (!current) return;
+
+    // Gate 1: adapter supports resume
+    if (!adapter.capabilities().resume || !adapter.resume) return;
+
+    // Gate 2: run must have a session reference to resume into
+    if (!current.engine_session_id) return;
+
+    // Gate 3: check if this run has already been resumed (to enforce once-only, covers restarts)
+    const existingResumeEvent = opts.store.events
+      .after(0, { run_id: run.id, type: "run_resumed" })
+      .find((e) => e.type === "run_resumed");
+    if (existingResumeEvent) return;
+
+    // All gates passed — attempt resume
+    opts.store.commands.transitionRunState({
+      id: run.id,
+      workstreamId: job.workstreamId,
+      to: "starting",
+      actorId: null,
+    });
+
+    const resumeSpec: RunSpec & { sessionRef: string } = { ...spec, sessionRef: current.engine_session_id };
+    const handle2 = await adapter.resume(resumeSpec);
+
+    // F7: register pid for the resumed attempt too
+    if (opts.pids && typeof handle2.pid === "number") opts.pids.register(run.id, handle2.pid);
+
+    // Use the same spec for supervising — the adapter's internal state carries the session context
+    const { sawRunEnded: sawRunEnded2 } = await superviseStream(run, job, adapter, resumeSpec, handle2, carryingTotals);
+
+    if (!sawRunEnded2) {
+      // The resumed stream also failed — do not attempt another resume (once-only enforced above too)
+      opts.store.commands.transitionRunState({
+        id: run.id,
+        workstreamId: job.workstreamId,
+        to: "interrupted",
+        actorId: null,
+        reason: "adapter stream ended abnormally (after resume)",
       });
     }
   }
