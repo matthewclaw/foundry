@@ -75,6 +75,13 @@ export interface RunSpec {
 export interface RunHandle {
   readonly runId: RunId;
   readonly adapterId: string;
+  /**
+   * OS process id of the spawned engine, when there is a real one (E9 claude-code).
+   * Additive amendment to the #12 shape (E4.5/F7): the runtime registers it in the
+   * pid-file registry so a startup sweep can kill orphans. Adapters with no real
+   * process (fake) simply omit it.
+   */
+  readonly pid?: number;
 }
 
 // --- EngineEvent (contracts.md, literal union) ---

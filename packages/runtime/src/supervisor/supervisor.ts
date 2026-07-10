@@ -11,6 +11,7 @@ import type { Run } from "@foundry/core";
 import type { Store } from "@foundry/store";
 import type { EngineEvent, ExecutionAdapter, RunSpec } from "@foundry/adapter-api";
 import type { RunQueueJob } from "../scheduler/queue.js";
+import type { PidRegistry } from "../reconcile/reconcile.js";
 
 export interface RunSupervisorOptions {
   store: Pick<Store, "commands" | "workstreams" | "runs">;
@@ -21,6 +22,8 @@ export interface RunSupervisorOptions {
   defaultStallMs?: number;
   /** Optional budget caps: if cumulative usage exceeds any cap, the run is cancelled. */
   budgetCaps?: { tokensIn?: number; tokensOut?: number; costUsd?: number };
+  /** F7: engine pids registered here while their stream is live, swept on startup (E4.5). */
+  pids?: PidRegistry;
 }
 
 const DEFAULT_WALL_CLOCK_MS = 10 * 60 * 1000;
@@ -51,6 +54,9 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
     };
 
     const handle = await adapter.start(spec);
+    // F7: while this stream is live, the engine process (if the adapter spawned a real
+    // one) is registered so a control-plane restart can sweep it as an orphan (E4.5).
+    if (opts.pids && typeof handle.pid === "number") opts.pids.register(run.id, handle.pid);
 
     // Watchdog state: track running totals for budget and timers
     const wallClockMs = spec.limits.wallClockMs;
@@ -150,6 +156,9 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
     } catch {
       // Adapter stream ended abnormally (F1: process crash) — folded below, same as a
       // watchdog-forced cancel (F2) that the adapter doesn't acknowledge gracefully.
+    } finally {
+      // Stream over (gracefully or not) — the engine process is no longer ours to sweep.
+      if (opts.pids && typeof handle.pid === "number") opts.pids.unregister(run.id);
     }
     if (!sawRunEnded) {
       foldAbnormalTermination(run, job);

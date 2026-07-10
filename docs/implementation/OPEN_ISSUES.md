@@ -362,3 +362,19 @@ permits `packages/runtime/src/**/*.test.ts` (and only `*.test.ts` — production
 still strictly layered) to import `@foundry/adapter-fake`. Flagging since it's a new kind
 of rule (previous layer violations were unconditional) — if a future package needs the same
 "test-only" exception, this is the pattern to extend, not a bespoke one-off.
+
+## 28. E4.5 pid-sweep scope: adapter-agnostic registry now, literal pids from E9 on — and one additive `RunHandle` field
+
+The F7 pid sweep had nothing real to track before E9 (the fake adapter spawns no OS
+process), so `SUMMARY-E4-partial.md` flagged a scope question: wait for E9, or build
+adapter-agnostic. **Resolution: built now.** The pid-file registry
+(`packages/runtime/src/reconcile/reconcile.ts` `createPidRegistry`) and the startup sweep
+are engine-independent — the sweep is tested today against a real spawned orphan node
+process, no E9 needed. The run supervisor registers a pid only when the adapter's handle
+carries one, which required one **additive** amendment to the #12 `RunHandle` shape:
+`readonly pid?: number` (`packages/adapter-api/src/types.ts`). The fake adapter omits it
+(registration becomes a no-op); E9's claude-code adapter should set it on the handles it
+returns and gets orphan sweeping with zero further wiring. The catalogue's reserved
+`system_orphan_process_killed` / `system_reconciled` types (E1.3) are now emitted.
+Deliberate ceiling: the sweep kills by pid with no pid-reuse guard (fine for a local
+single-user control plane; verify process start time if this ever multi-tenants).

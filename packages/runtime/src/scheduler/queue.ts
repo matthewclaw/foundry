@@ -42,6 +42,11 @@ export interface RunQueueOptions {
 export interface RunQueue {
   /** Persists the run (`run_queued` event included) and queues it for execution. */
   enqueue(job: RunQueueJob): Run;
+  /**
+   * Queues an already-persisted `queued` run without creating a new row — startup
+   * reconciliation's re-queue path (E4.5/F3). Same scheduling rules as `enqueue`.
+   */
+  restore(run: Run, job: RunQueueJob): void;
   pendingCount(): number;
   activeCount(): number;
 }
@@ -126,6 +131,10 @@ export function createRunQueue(opts: RunQueueOptions): RunQueue {
       pending.push({ run, job });
       drain();
       return run;
+    },
+    restore(run, job) {
+      pending.push({ run, job });
+      drain();
     },
     pendingCount: () => pending.length,
     activeCount: () => activeTotal,

@@ -140,6 +140,28 @@ describe("createRunQueue — E4.1", () => {
     expect(order).toEqual([wsA, wsC, wsB]);
   });
 
+  it("restore() executes an already-persisted run without creating a second row or event", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Requeued after restart");
+    // The run row already exists — created by the pre-crash control plane.
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "agent_message",
+      input_context_ref: "ctx",
+      engine_id: "fake",
+    });
+
+    const executed: string[] = [];
+    const queue = createRunQueue({ store, execute: async (r) => void executed.push(r.id) });
+    queue.restore(run, { workstreamId: ws, trigger: run.trigger, inputContextRef: "ctx", engineId: "fake" });
+    await waitForIdle(queue);
+
+    expect(executed).toEqual([run.id]);
+    expect(store.runs.list({ workstream_id: ws })).toHaveLength(1);
+    expect(store.events.after(0).filter((e) => e.type === "run_queued")).toHaveLength(1);
+  });
+
   it("emits a run_queued event as part of enqueueing", () => {
     const store = testStore();
     const agentId = bootstrapAgent(store);

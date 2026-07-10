@@ -4,3 +4,4 @@
 export * from "./scheduler/queue.js";
 export * from "./supervisor/supervisor.js";
 export * from "./workspace/manager.js";
+export * from "./reconcile/reconcile.js";
