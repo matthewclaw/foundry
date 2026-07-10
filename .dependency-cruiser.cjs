@@ -25,13 +25,26 @@ const ALLOWED = {
   cli: ["core"],
 };
 
+/**
+ * Same-layer packages a package may import from *.test.ts only (contracts.md "Testing
+ * strategy": "Runtime ... Integration tests: runtime + store + fake adapter scenarios").
+ * Production code under `src/**\/!(*.test).ts` stays strictly layered.
+ * @type {Record<string, string[]>}
+ */
+const TEST_ONLY_ALLOWED = {
+  runtime: ["adapter-fake"],
+};
+
 const fromToRules = Object.entries(ALLOWED).flatMap(([from, allowed]) => {
-  const forbidden = Object.keys(ALLOWED).filter(
-    (to) => to !== from && !allowed.includes(to)
+  const testOnly = TEST_ONLY_ALLOWED[from] ?? [];
+  const forbiddenAlways = Object.keys(ALLOWED).filter(
+    (to) => to !== from && !allowed.includes(to) && !testOnly.includes(to)
   );
-  if (forbidden.length === 0) return [];
-  return [
-    {
+  const forbiddenOutsideTests = testOnly.filter((to) => to !== from);
+
+  const rules = [];
+  if (forbiddenAlways.length > 0) {
+    rules.push({
       name: `layer-violation-${from}`,
       severity: "error",
       comment: `packages/${from} may only depend on lower layers (${
@@ -39,10 +52,22 @@ const fromToRules = Object.entries(ALLOWED).flatMap(([from, allowed]) => {
       }); see docs/implementation/contracts.md`,
       from: { path: `^packages/${from}/src` },
       to: {
-        path: `^packages/(${forbidden.join("|")})/src`,
+        path: `^packages/(${forbiddenAlways.join("|")})/src`,
       },
-    },
-  ];
+    });
+  }
+  if (forbiddenOutsideTests.length > 0) {
+    rules.push({
+      name: `layer-violation-${from}-nontest`,
+      severity: "error",
+      comment: `packages/${from} may only import ${forbiddenOutsideTests.join(
+        ", "
+      )} from *.test.ts (integration-test fixture, per contracts.md Testing strategy)`,
+      from: { path: `^packages/${from}/src`, pathNot: "\\.test\\.ts$" },
+      to: { path: `^packages/(${forbiddenOutsideTests.join("|")})/src` },
+    });
+  }
+  return rules;
 });
 
 module.exports = {
