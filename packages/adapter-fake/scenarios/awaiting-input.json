@@ -1,0 +1,13 @@
+{
+  "name": "awaiting-input",
+  "description": "The engine asks a question it can't proceed without and ends its turn there. No live channel exists to inject an answer into a running adapter invocation (RunSpec is fixed at start()), so awaiting_input is immediately followed by run_ended{outcome:'needs_input'} — the answer arrives via a fresh run (RunTrigger 'resume'/'agent_message') composed with the answer in context, not a continuation of this stream.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-awaiting-input" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "I need to know which repository to target before I continue." } },
+    { "type": "event", "event": { "t": "awaiting_input", "prompt": "Which repository should I work in?" } },
+    {
+      "type": "event",
+      "event": { "t": "run_ended", "outcome": "needs_input", "sessionRef": "sess-awaiting-input" }
+    }
+  ]
+}

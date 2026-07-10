@@ -1,0 +1,111 @@
+{
+  "name": "Reasoning with Multi-Tool Timeline",
+  "description": "Demonstrates a realistic scenario with reasoning summaries interleaved between multiple tool calls (read_file and edit_file) and accumulating usage deltas. This tests UI timeline rendering with mixed event types and progressive cost/token tracking.",
+  "steps": [
+    {
+      "type": "event",
+      "event": {
+        "t": "run_started",
+        "sessionRef": "sess-reasoning-timeline"
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "reasoning_summary",
+        "text": "Breaking this into two steps: first I'll read the current configuration file to understand its structure, then I'll update the relevant settings based on the requirements."
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "tool_call",
+        "phase": "start",
+        "name": "read_file",
+        "detail": {
+          "path": "config/settings.json"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "tool_call",
+        "phase": "end",
+        "name": "read_file"
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "usage_delta",
+        "tokensIn": 800,
+        "tokensOut": 150,
+        "costUsd": 0.01
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "reasoning_summary",
+        "text": "I've reviewed the configuration file. The current logging level is set to 'info' and the database timeout is 30 seconds. Based on the requirements, I need to increase the logging level to 'debug' and extend the database timeout to 60 seconds for improved stability."
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "tool_call",
+        "phase": "start",
+        "name": "edit_file",
+        "detail": {
+          "path": "config/settings.json",
+          "changes": [
+            {
+              "field": "logging.level",
+              "oldValue": "info",
+              "newValue": "debug"
+            },
+            {
+              "field": "database.timeout",
+              "oldValue": 30,
+              "newValue": 60
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "tool_call",
+        "phase": "end",
+        "name": "edit_file"
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "usage_delta",
+        "tokensIn": 400,
+        "tokensOut": 90,
+        "costUsd": 0.006
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "output_delta",
+        "text": "Configuration updated successfully. Logging level changed from 'info' to 'debug' and database timeout increased from 30s to 60s."
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "run_ended",
+        "outcome": "completed",
+        "finalText": "Configuration update completed. The system is now configured with enhanced logging and improved database stability settings.",
+        "sessionRef": "sess-reasoning-timeline"
+      }
+    }
+  ]
+}

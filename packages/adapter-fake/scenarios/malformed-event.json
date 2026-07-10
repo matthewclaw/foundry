@@ -1,0 +1,12 @@
+{
+  "name": "malformed-event",
+  "description": "F15 — adapter bug emits a malformed event. DELIBERATE contract violation via the malformed_event step (bypasses EngineEventSchema entirely) so runtime's ingest-side schema validation has something real to reject; the expected runtime response is run failed(adapter_error), engine blamed, org state not corrupted. Not used by describeAdapterContract.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-malformed" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "This part is fine." } },
+    {
+      "type": "malformed_event",
+      "payload": { "t": "output_delta", "text": 12345 }
+    }
+  ]
+}

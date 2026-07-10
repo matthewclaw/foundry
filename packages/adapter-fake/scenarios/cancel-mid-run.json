@@ -1,0 +1,13 @@
+{
+  "name": "cancel-mid-run",
+  "description": "A cooperative cancel: the engine hangs while 'working', but once cancel() is called it unblocks and gracefully emits exactly one run_ended{outcome:'cancelled'} — the well-behaved counterpart to hang-stall.json's uncancellable stall.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-cancel-mid-run" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "Working on it..." } },
+    { "type": "hang" },
+    {
+      "type": "event",
+      "event": { "t": "run_ended", "outcome": "cancelled", "sessionRef": "sess-cancel-mid-run" }
+    }
+  ]
+}

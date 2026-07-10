@@ -1,0 +1,67 @@
+{
+  "name": "Delegate Task via Org Tool",
+  "description": "Demonstrates the fake adapter simulating an org-tool call (delegate_task) as a normalized tool_call event. The adapter emits a tool_call start event with the delegation request details, simulates processing, and emits a tool_call end event with the created task ID.",
+  "steps": [
+    {
+      "type": "event",
+      "event": {
+        "t": "run_started",
+        "sessionRef": "sess-delegate-task-call"
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "output_delta",
+        "text": "I'll delegate this investigation task to our QA team to ensure it receives proper attention."
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "tool_call",
+        "phase": "start",
+        "name": "delegate_task",
+        "detail": {
+          "title": "Investigate flaky checkout test",
+          "spec_md": "The checkout integration test fails intermittently in CI, causing unpredictable build failures. We need to determine whether this is a timing issue, a race condition, or an actual bug in the checkout flow.",
+          "acceptance_criteria_md": "- Root cause identified\n- Fix or flaky-test quarantine applied\n- CI green for 10 consecutive runs",
+          "routing": {
+            "role": "qa-engineer"
+          }
+        }
+      }
+    },
+    {
+      "type": "sleep",
+      "ms": 10
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "tool_call",
+        "phase": "end",
+        "name": "delegate_task",
+        "detail": {
+          "task_id": "01JDELEGATE0000000000000"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "output_delta",
+        "text": "Task delegated successfully. The investigation has been routed to our QA engineers with ID 01JDELEGATE0000000000000."
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "t": "run_ended",
+        "outcome": "completed",
+        "finalText": "Delegated the investigation and will follow up.",
+        "sessionRef": "sess-delegate-task-call"
+      }
+    }
+  ]
+}

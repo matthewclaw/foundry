@@ -1,0 +1,9 @@
+{
+  "name": "resume-after-interrupt-initial",
+  "description": "First half of the resume-after-interrupt pair (F1/F3): the initial attempt crashes mid-run after establishing a sessionRef. A runtime test drives start() with this scenario (via engineConfig.scenarioName), observes the abnormal stream end, marks the run interrupted, then drives resume({sessionRef}) with resume-after-interrupt-continuation.json to prove the session carries across the crash.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-resume-demo" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "Halfway through the task..." } },
+    { "type": "crash", "message": "simulated interrupt before completion" }
+  ]
+}

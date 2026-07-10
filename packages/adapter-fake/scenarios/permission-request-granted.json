@@ -1,0 +1,29 @@
+{
+  "name": "permission-request-granted",
+  "description": "The engine asks for permission before a privileged action (permission_hooks capability). Unlike awaiting_input, the process can stay alive across the wait (a real permission hook is a synchronous in-process callback) — this scenario simulates the grant arriving and the run continuing to completion.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-perm-granted" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "I need to run a shell command to continue." } },
+    {
+      "type": "event",
+      "event": {
+        "t": "permission_request",
+        "requestId": "perm-granted-1",
+        "description": "Run `npm install` in the workspace?"
+      }
+    },
+    { "type": "sleep", "ms": 10 },
+    { "type": "event", "event": { "t": "tool_call", "phase": "start", "name": "npm_install" } },
+    { "type": "event", "event": { "t": "tool_call", "phase": "end", "name": "npm_install" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "Dependencies installed." } },
+    {
+      "type": "event",
+      "event": {
+        "t": "run_ended",
+        "outcome": "completed",
+        "finalText": "Installed dependencies and finished.",
+        "sessionRef": "sess-perm-granted"
+      }
+    }
+  ]
+}

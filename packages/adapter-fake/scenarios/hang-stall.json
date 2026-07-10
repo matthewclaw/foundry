@@ -1,0 +1,9 @@
+{
+  "name": "hang-stall",
+  "description": "F2 — engine hangs with no further events. No step follows the hang, so even a forced cancel() only stops iteration without a graceful run_ended — this models a true stall the runtime's watchdog must detect (no events for N minutes) and forcibly interrupt, distinct from a cooperative cancel (see cancel-mid-run.json).",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-hang-stall" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "Working on it..." } },
+    { "type": "hang" }
+  ]
+}
