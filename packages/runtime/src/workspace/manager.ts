@@ -4,7 +4,7 @@
  * Two workstreams on one repo get isolated worktrees; dirty worktree ⇒ run refused +
  * workstream blocked. Non-code workstreams get plain scratch directories.
  */
-import { mkdirSync, rmSync, existsSync, accessSync, constants } from "node:fs";
+import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { WorkstreamId } from "@foundry/core";
