@@ -6,6 +6,7 @@ import {
   type Ref,
   type TaskId,
   type Workstream,
+  type WorkstreamId,
   type WorkstreamOrigin,
   type WorkstreamState,
   type WorkspaceRef,
@@ -69,6 +70,7 @@ export function createWorkstream(mutate: Mutate, input: CreateWorkstreamInput): 
         entity_id: id,
         type: "workstream_created",
         payload: { title: input.title, origin: input.origin },
+        workstream_id: id,
       },
     ],
   });
@@ -78,7 +80,7 @@ export function transitionWorkstreamState(
   db: Db,
   mutate: Mutate,
   args: {
-    id: string;
+    id: WorkstreamId;
     to: WorkstreamState;
     actorId: ActorId | null;
     waitingOnRef?: Ref | null;
@@ -106,7 +108,14 @@ export function transitionWorkstreamState(
         .run(args.to, closedAt, args.id);
     },
     events: [
-      { actor_id: args.actorId, entity_type: "workstream", entity_id: args.id, type: event, payload },
+      {
+        actor_id: args.actorId,
+        entity_type: "workstream",
+        entity_id: args.id,
+        type: event,
+        payload,
+        workstream_id: args.id,
+      },
     ],
   });
 }
