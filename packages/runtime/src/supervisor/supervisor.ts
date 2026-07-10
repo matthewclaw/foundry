@@ -17,9 +17,14 @@ export interface RunSupervisorOptions {
   /** Adapter registry keyed by engine id (contracts.md: Runtime "configured with Store + adapter registry"). */
   adapters: Record<string, ExecutionAdapter>;
   defaultWallClockMs?: number;
+  /** Default stall timeout: no event from adapter for this duration triggers cancellation. */
+  defaultStallMs?: number;
+  /** Optional budget caps: if cumulative usage exceeds any cap, the run is cancelled. */
+  budgetCaps?: { tokensIn?: number; tokensOut?: number; costUsd?: number };
 }
 
 const DEFAULT_WALL_CLOCK_MS = 10 * 60 * 1000;
+const DEFAULT_STALL_MS = 5 * 60 * 1000; // 5 minutes
 
 export function createRunSupervisor(opts: RunSupervisorOptions) {
   async function execute(run: Run, job: RunQueueJob): Promise<void> {
@@ -47,9 +52,96 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
 
     const handle = await adapter.start(spec);
 
+    // Watchdog state: track running totals for budget and timers
+    const wallClockMs = spec.limits.wallClockMs;
+    const stallMs = opts.defaultStallMs ?? DEFAULT_STALL_MS;
+    const startTime = Date.now();
+    let lastEventTime = Date.now();
+    let tokensInTotal = 0;
+    let tokensOutTotal = 0;
+    let costUsdTotal = 0;
+    let cancelled = false;
+
+    // Manual async iterator for racing against watchdogs
+    const eventIterator = adapter.events(handle)[Symbol.asyncIterator]();
     let sawRunEnded = false;
+
     try {
-      for await (const event of adapter.events(handle)) {
+      for (;;) {
+        // Check wall-clock timeout before attempting to get next event
+        const elapsedWallClock = Date.now() - startTime;
+        if (elapsedWallClock >= wallClockMs && !cancelled) {
+          cancelled = true;
+          await adapter.cancel(handle);
+          // Fall through to consume remaining events
+        }
+
+        // Check stall timeout before attempting to get next event
+        const elapsedStall = Date.now() - lastEventTime;
+        if (elapsedStall >= stallMs && !cancelled) {
+          cancelled = true;
+          await adapter.cancel(handle);
+          // Fall through to consume remaining events
+        }
+
+        // Race next event against wall-clock and stall timers
+        const wallClockTimeoutMs = wallClockMs - elapsedWallClock;
+        const stallTimeoutMs = stallMs - elapsedStall;
+        const minTimeoutMs = Math.min(
+          wallClockTimeoutMs > 0 ? wallClockTimeoutMs : Infinity,
+          stallTimeoutMs > 0 ? stallTimeoutMs : Infinity
+        );
+
+        let nextEvent: IteratorResult<EngineEvent>;
+
+        if (minTimeoutMs <= 0 || !isFinite(minTimeoutMs)) {
+          // Already timed out or timeouts disabled, just get next event
+          nextEvent = await eventIterator.next();
+        } else {
+          // Race the iterator against the timeout
+          const timeoutPromise = new Promise<IteratorResult<EngineEvent>>((resolve) => {
+            setTimeout(() => {
+              resolve({ value: undefined as unknown as EngineEvent, done: true });
+            }, minTimeoutMs);
+          });
+
+          nextEvent = await Promise.race([eventIterator.next(), timeoutPromise]);
+        }
+
+        if (nextEvent.done) {
+          break; // Iterator exhausted
+        }
+
+        const event = nextEvent.value;
+        lastEventTime = Date.now();
+
+        // Accumulate budget on usage_delta events
+        if (event.t === "usage_delta") {
+          if (event.tokensIn !== undefined) tokensInTotal += event.tokensIn;
+          if (event.tokensOut !== undefined) tokensOutTotal += event.tokensOut;
+          if (event.costUsd !== undefined) costUsdTotal += event.costUsd;
+
+          // Check if budget exceeded
+          if (opts.budgetCaps && !cancelled) {
+            if (
+              opts.budgetCaps.tokensIn !== undefined &&
+              tokensInTotal > opts.budgetCaps.tokensIn
+            ) {
+              cancelled = true;
+              await adapter.cancel(handle);
+            } else if (
+              opts.budgetCaps.tokensOut !== undefined &&
+              tokensOutTotal > opts.budgetCaps.tokensOut
+            ) {
+              cancelled = true;
+              await adapter.cancel(handle);
+            } else if (opts.budgetCaps.costUsd !== undefined && costUsdTotal > opts.budgetCaps.costUsd) {
+              cancelled = true;
+              await adapter.cancel(handle);
+            }
+          }
+        }
+
         if (event.t === "run_ended") sawRunEnded = true;
         handleEvent(run, job, event);
       }
@@ -199,7 +291,7 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
           workstreamId: job.workstreamId,
           to: "failed",
           actorId: null,
-          error: event.error ?? "unknown error",
+          result: { outcome: "failed", final_text: null, artifact_refs: [], error: event.error ?? "unknown error" },
         });
         return;
       case "cancelled":

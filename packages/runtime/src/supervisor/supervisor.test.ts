@@ -176,3 +176,139 @@ describe("createRunSupervisor — E4.2", () => {
     ).rejects.toThrow(/not runnable/);
   });
 });
+
+describe("watchdogs — E4.3", () => {
+  it("stall watchdog: hang-stall scenario with short stallMs terminates in interrupted state", async () => {
+    const start = Date.now();
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Hang test");
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: createFakeAdapter(loadScenario("hang-stall")) },
+      defaultStallMs: 20, // Short timeout for test speed
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/5/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/5/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+    });
+
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(1000); // Should be quick, not hang
+    expect(store.runs.get(run.id)?.state).toBe("interrupted");
+  });
+
+  it("budget cutoff watchdog: budget-burn-cutoff scenario trips at costUsd cap", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Budget test");
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: createFakeAdapter(loadScenario("budget-burn-cutoff")) },
+      defaultStallMs: 5000, // Long stall so wall-clock/budget trip first
+      budgetCaps: { costUsd: 3.0 }, // Trip after 3rd usage_delta (cumulative: 3.4 > 3.0)
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/6/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/6/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+    });
+
+    const finished = store.runs.get(run.id);
+    expect(finished?.state).toBe("failed");
+    expect(finished?.result?.error).toBe("budget_exhausted");
+  });
+
+  it("wall-clock watchdog: hang-stall scenario with very short wallClockMs terminates in interrupted state", async () => {
+    const start = Date.now();
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Wall-clock test");
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: createFakeAdapter(loadScenario("hang-stall")) },
+      defaultStallMs: 10000, // Long stall so wall-clock trips first
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/7/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/7/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      wallClockMs: 30, // Very short wall-clock timeout
+    });
+
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(1000); // Should be quick
+    expect(store.runs.get(run.id)?.state).toBe("interrupted");
+  });
+
+  it("happy-path scenario with generous limits completes normally without false-positive watchdogs", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Happy path watchdog test");
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: createFakeAdapter(loadScenario("happy-path")) },
+      defaultStallMs: 5000,
+      defaultWallClockMs: 30000,
+      budgetCaps: { costUsd: 1000000 }, // Very high cap
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/8/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/8/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+    });
+
+    const finished = store.runs.get(run.id);
+    expect(finished?.state).toBe("completed");
+    expect(finished?.result?.outcome).toBe("completed");
+  });
+});
