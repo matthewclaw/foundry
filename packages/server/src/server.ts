@@ -17,6 +17,7 @@ import { registerAgentRoutes } from "./routes/agents.js";
 import { registerWorkstreamRoutes } from "./routes/workstreams.js";
 import { registerQueryRoutes } from "./routes/queries.js";
 import { registerFeedRoutes } from "./routes/feed.js";
+import { registerAdminRoutes } from "./routes/admin.js";
 
 export interface ServerConfig {
   dataDir: string;
@@ -63,6 +64,7 @@ export function createServer(config: ServerConfig): FoundryServer {
   registerWorkstreamRoutes(app, ctx);
   registerQueryRoutes(app, ctx);
   registerFeedRoutes(app, ctx);
+  registerAdminRoutes(app, ctx);
 
   return {
     app,

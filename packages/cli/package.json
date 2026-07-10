@@ -1,0 +1,24 @@
+{
+  "name": "@foundry/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Foundry L4 CLI: init, daemon start/stop, agent create, backup. Depends: core + HTTP only.",
+  "type": "module",
+  "bin": {
+    "foundry": "./dist/foundry.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@foundry/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}

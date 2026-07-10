@@ -2,4 +2,6 @@
 // docs/implementation/contracts.md "@foundry/adapter-api".
 
 export * from "./types.js";
-export * from "./conformance.js";
+// The conformance suite imports vitest and would crash any non-test consumer (e.g. the
+// server daemon importing an adapter package) — it lives on the "./conformance"
+// subpath export, for *.test.ts files only.

@@ -20,7 +20,7 @@ const ALLOWED = {
   "adapter-fake": ["core", "adapter-api"],
   "adapter-claude-code": ["core", "adapter-api"],
   runtime: ["core", "store", "adapter-api"],
-  server: ["core", "store", "runtime", "adapter-api"],
+  server: ["core", "store", "runtime", "adapter-api", "adapter-fake"],
   ui: ["core"],
   cli: ["core"],
 };
