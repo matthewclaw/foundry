@@ -13,10 +13,14 @@ import type { Mutate, NewEvent } from "../types.js";
 import { fromJsonNullable, toJson } from "../row-mapping.js";
 import { readState, requireTransitionEvent, assertStateUnchanged } from "./transition-helper.js";
 
-export function createRun(
-  mutate: Mutate,
-  input: { workstream_id: WorkstreamId; trigger: RunTrigger; input_context_ref: string; engine_id: string }
-): Run {
+export interface CreateRunInput {
+  workstream_id: WorkstreamId;
+  trigger: RunTrigger;
+  input_context_ref: string;
+  engine_id: string;
+}
+
+export function createRun(mutate: Mutate, input: CreateRunInput): Run {
   const id = newRunId();
   const now = new Date().toISOString();
 
@@ -60,21 +64,19 @@ export function createRun(
   });
 }
 
-export function transitionRunState(
-  db: Db,
-  mutate: Mutate,
-  args: {
-    id: string;
-    workstreamId: WorkstreamId;
-    to: RunState;
-    actorId: ActorId | null;
-    result?: RunResult;
-    error?: string;
-    engineSessionId?: string | null;
-    prompt?: string;
-    reason?: string;
-  }
-): void {
+export interface TransitionRunStateArgs {
+  id: string;
+  workstreamId: WorkstreamId;
+  to: RunState;
+  actorId: ActorId | null;
+  result?: RunResult;
+  error?: string;
+  engineSessionId?: string | null;
+  prompt?: string;
+  reason?: string;
+}
+
+export function transitionRunState(db: Db, mutate: Mutate, args: TransitionRunStateArgs): void {
   const from = readState(db, "runs", args.id, "run");
   const event = requireTransitionEvent("run", from, args.to);
 

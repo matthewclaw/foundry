@@ -98,18 +98,16 @@ export function createTask(db: Db, mutate: Mutate, input: CreateTaskInput): Task
   });
 }
 
-export function transitionTaskState(
-  db: Db,
-  mutate: Mutate,
-  args: {
-    id: string;
-    to: TaskState;
-    actorId: ActorId | null;
-    reason?: string;
-    deliverableRef?: DeliverableRef;
-    acceptedBy?: ActorId;
-  }
-): void {
+export interface TransitionTaskStateArgs {
+  id: string;
+  to: TaskState;
+  actorId: ActorId | null;
+  reason?: string;
+  deliverableRef?: DeliverableRef;
+  acceptedBy?: ActorId;
+}
+
+export function transitionTaskState(db: Db, mutate: Mutate, args: TransitionTaskStateArgs): void {
   const from = readState(db, "tasks", args.id, "task");
   const event = requireTransitionEvent("task", from, args.to);
 

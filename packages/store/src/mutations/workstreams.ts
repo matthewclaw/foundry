@@ -76,17 +76,15 @@ export function createWorkstream(mutate: Mutate, input: CreateWorkstreamInput): 
   });
 }
 
-export function transitionWorkstreamState(
-  db: Db,
-  mutate: Mutate,
-  args: {
-    id: WorkstreamId;
-    to: WorkstreamState;
-    actorId: ActorId | null;
-    waitingOnRef?: Ref | null;
-    reason?: string;
-  }
-): void {
+export interface TransitionWorkstreamStateArgs {
+  id: WorkstreamId;
+  to: WorkstreamState;
+  actorId: ActorId | null;
+  waitingOnRef?: Ref | null;
+  reason?: string;
+}
+
+export function transitionWorkstreamState(db: Db, mutate: Mutate, args: TransitionWorkstreamStateArgs): void {
   const from = readState(db, "workstreams", args.id, "workstream");
   const event = requireTransitionEvent("workstream", from, args.to);
 

@@ -2,8 +2,14 @@ import { newTeamId, type Policy, type Team } from "@foundry/core";
 import type { Mutate } from "../types.js";
 import { fromJson } from "../row-mapping.js";
 
+export interface CreateTeamInput {
+  name: string;
+  description: string;
+  default_policy: Policy;
+}
+
 /** Teams carry no state machine (02: "labels with defaults, not containers with behaviour"). */
-export function createTeam(mutate: Mutate, input: { name: string; description: string; default_policy: Policy }): Team {
+export function createTeam(mutate: Mutate, input: CreateTeamInput): Team {
   const id = newTeamId();
   return mutate({
     apply: (tx) => {

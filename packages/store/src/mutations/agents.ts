@@ -73,11 +73,14 @@ export function createAgent(mutate: Mutate, input: CreateAgentInput): { agentId:
   });
 }
 
-export function transitionAgentState(
-  db: Db,
-  mutate: Mutate,
-  args: { id: AgentId; to: AgentState; actorId: ActorId | null; reason?: string }
-): void {
+export interface TransitionAgentStateArgs {
+  id: AgentId;
+  to: AgentState;
+  actorId: ActorId | null;
+  reason?: string;
+}
+
+export function transitionAgentState(db: Db, mutate: Mutate, args: TransitionAgentStateArgs): void {
   const from = readState(db, "agents", args.id, "agent");
   const event = requireTransitionEvent("agent", from, args.to);
 

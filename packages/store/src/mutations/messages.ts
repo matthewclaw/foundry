@@ -110,12 +110,16 @@ export function sendMessage(mutate: Mutate, input: SendMessageInput): Message {
   });
 }
 
+export interface ResolveMessageDispositionArgs {
+  id: string;
+  messageType: MessageType;
+  to: string;
+  actorId: ActorId | null;
+  dispositionRef?: Ref | null;
+}
+
 /** Resolves a message's disposition (answer/expire/etc.) per its type's closed set (OPEN_ISSUES.md #8). */
-export function resolveMessageDisposition(
-  db: Db,
-  mutate: Mutate,
-  args: { id: string; messageType: MessageType; to: string; actorId: ActorId | null; dispositionRef?: Ref | null }
-): void {
+export function resolveMessageDisposition(db: Db, mutate: Mutate, args: ResolveMessageDispositionArgs): void {
   const row = db.prepare(`SELECT disposition FROM messages WHERE id = ?`).get(args.id) as
     | { disposition: string }
     | undefined;

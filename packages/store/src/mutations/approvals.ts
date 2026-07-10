@@ -4,10 +4,13 @@ import type { Mutate } from "../types.js";
 import { fromJsonNullable, toJson } from "../row-mapping.js";
 import { InvalidTransitionError, NotFoundError } from "./transition-helper.js";
 
-export function requestApproval(
-  mutate: Mutate,
-  input: { requested_by_actor: ActorId; kind: string; payload?: unknown }
-): Approval {
+export interface RequestApprovalInput {
+  requested_by_actor: ActorId;
+  kind: string;
+  payload?: unknown;
+}
+
+export function requestApproval(mutate: Mutate, input: RequestApprovalInput): Approval {
   const id = newApprovalId();
   const now = new Date().toISOString();
 
@@ -42,11 +45,14 @@ export function requestApproval(
   });
 }
 
-export function decideApproval(
-  db: Db,
-  mutate: Mutate,
-  args: { id: string; decision: "granted" | "denied"; decided_by_actor: ActorId; reason?: string }
-): void {
+export interface DecideApprovalArgs {
+  id: string;
+  decision: "granted" | "denied";
+  decided_by_actor: ActorId;
+  reason?: string;
+}
+
+export function decideApproval(db: Db, mutate: Mutate, args: DecideApprovalArgs): void {
   const row = db.prepare(`SELECT state FROM approvals WHERE id = ?`).get(args.id) as
     | { state: ApprovalState }
     | undefined;
