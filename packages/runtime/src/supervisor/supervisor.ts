@@ -9,7 +9,7 @@
  */
 import type { Run } from "@foundry/core";
 import type { Store } from "@foundry/store";
-import type { EngineEvent, ExecutionAdapter, RunSpec } from "@foundry/adapter-api";
+import type { EngineEvent, ExecutionAdapter, RunHandle, RunSpec } from "@foundry/adapter-api";
 import type { RunQueueJob } from "../scheduler/queue.js";
 import type { PidRegistry } from "../reconcile/reconcile.js";
 
@@ -41,7 +41,7 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
     job: RunQueueJob,
     adapter: ExecutionAdapter,
     spec: RunSpec,
-    handle: any,
+    handle: RunHandle,
     startingTotals: { tokensInTotal: number; tokensOutTotal: number; costUsdTotal: number }
   ): Promise<{ sawRunEnded: boolean; totals: typeof startingTotals }> {
     const wallClockMs = spec.limits.wallClockMs;
@@ -197,17 +197,30 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
     spec: RunSpec,
     carryingTotals: { tokensInTotal: number; tokensOutTotal: number; costUsdTotal: number }
   ): Promise<void> {
+    if (foldTerminalState(run, job) === "interrupted") {
+      // E4.6: auto-resume interrupted runs exactly once if all gates below pass.
+      await attemptResume(run, job, adapter, spec, carryingTotals);
+    }
+  }
+
+  /**
+   * The state-dispatch half of the fold, shared by the first attempt and the resume
+   * attempt: `starting` (never got going — no session to resume, and no valid
+   * `starting → interrupted` edge exists) → `failed`; `running`/`awaiting_*` →
+   * `interrupted`. Never resumes; the caller decides that.
+   */
+  function foldTerminalState(run: Run, job: RunQueueJob, suffix = ""): "failed" | "interrupted" | undefined {
     const current = opts.store.runs.get(run.id);
-    if (!current) return;
+    if (!current) return undefined;
     if (current.state === "starting") {
       opts.store.commands.transitionRunState({
         id: run.id,
         workstreamId: job.workstreamId,
         to: "failed",
         actorId: null,
-        error: "adapter stream ended before the run started",
+        error: `adapter stream ended before the run started${suffix}`,
       });
-      return;
+      return "failed";
     }
     if (current.state === "running" || current.state === "awaiting_input" || current.state === "awaiting_approval") {
       opts.store.commands.transitionRunState({
@@ -215,12 +228,11 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
         workstreamId: job.workstreamId,
         to: "interrupted",
         actorId: null,
-        reason: "adapter stream ended abnormally",
+        reason: `adapter stream ended abnormally${suffix}`,
       });
-
-      // E4.6: Auto-resume interrupted runs exactly once if all conditions are met
-      await attemptResume(run, job, adapter, spec, carryingTotals);
+      return "interrupted";
     }
+    return undefined;
   }
 
   /**
@@ -244,11 +256,9 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
     // Gate 2: run must have a session reference to resume into
     if (!current.engine_session_id) return;
 
-    // Gate 3: check if this run has already been resumed (to enforce once-only, covers restarts)
-    const existingResumeEvent = opts.store.events
-      .after(0, { run_id: run.id, type: "run_resumed" })
-      .find((e) => e.type === "run_resumed");
-    if (existingResumeEvent) return;
+    // Gate 3: never resumed before — once-only, and the event log makes the guard
+    // hold even across a control-plane restart between interruption and resume.
+    if (opts.store.events.after(0, { run_id: run.id, type: "run_resumed" }).length > 0) return;
 
     // All gates passed — attempt resume
     opts.store.commands.transitionRunState({
@@ -268,14 +278,10 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
     const { sawRunEnded: sawRunEnded2 } = await superviseStream(run, job, adapter, resumeSpec, handle2, carryingTotals);
 
     if (!sawRunEnded2) {
-      // The resumed stream also failed — do not attempt another resume (once-only enforced above too)
-      opts.store.commands.transitionRunState({
-        id: run.id,
-        workstreamId: job.workstreamId,
-        to: "interrupted",
-        actorId: null,
-        reason: "adapter stream ended abnormally (after resume)",
-      });
+      // The resumed stream also died — fold by current state (it may have crashed before
+      // its run_started, i.e. still `starting`, where only `failed` is a legal edge).
+      // Never a second resume.
+      foldTerminalState(run, job, " (after resume)");
     }
   }
 

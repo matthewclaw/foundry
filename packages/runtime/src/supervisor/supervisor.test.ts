@@ -272,13 +272,6 @@ describe("resume flow — E4.6", () => {
       engineConfig: { scenarioName: "resume-after-interrupt-initial" },
     });
 
-    // Verify engine_session_id was captured after initial run_started
-    const afterInitialStart = store.runs.get(run.id);
-    if (afterInitialStart) {
-      // Should have been set by the initial run_started event
-      // (but run might be interrupted now, so we'll check after resume)
-    }
-
     // Verify resume was called exactly once with sessionRef
     expect(resumeSpec).toBeDefined();
     expect(resumeSpec?.sessionRef).toBe("sess-resume-demo");
@@ -360,6 +353,61 @@ describe("resume flow — E4.6", () => {
     // Exactly one run_resumed event
     const events = store.events.after(0).filter((e) => e.run_id === run.id && e.type === "run_resumed");
     expect(events.length).toBe(1);
+  });
+
+  it("resume stream dies before its run_started: folds to failed (no starting→interrupted edge), never throws", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Resume crashes at startup");
+
+    // The resumed engine dies instantly — before emitting run_started — so the run is
+    // still `starting` when its stream ends; the only legal fold from there is `failed`.
+    const instantCrash = {
+      name: "instant-crash",
+      description: "dies before run_started",
+      steps: [{ type: "crash" as const, message: "died on the launchpad" }],
+    };
+    let resumeCallCount = 0;
+    const initialAdapter = createFakeAdapter(loadScenario("resume-after-interrupt-initial"));
+    const crashAdapter = createFakeAdapter(instantCrash);
+    // Fake handles carry their scenario, so events()/cancel() can route on it.
+    const issuedByCrash = (handle: unknown) =>
+      (handle as { scenario?: { name?: string } }).scenario?.name === "instant-crash";
+    const wrapperAdapter: ExecutionAdapter = {
+      id: "fake",
+      capabilities: () => initialAdapter.capabilities(),
+      start: (spec) => initialAdapter.start(spec),
+      resume: async (spec) => {
+        resumeCallCount++;
+        return crashAdapter.start({ ...spec, engineConfig: { scenario: instantCrash } });
+      },
+      cancel: (handle) => (issuedByCrash(handle) ? crashAdapter.cancel(handle) : initialAdapter.cancel(handle)),
+      events: (handle) => (issuedByCrash(handle) ? crashAdapter.events(handle) : initialAdapter.events(handle)),
+    };
+
+    const supervisor = createRunSupervisor({ store, adapters: { fake: wrapperAdapter } });
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/9/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/9/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "resume-after-interrupt-initial" },
+    });
+
+    expect(resumeCallCount).toBe(1);
+    const finished = store.runs.get(run.id);
+    expect(finished?.state).toBe("failed");
+    const failedEvent = store.events.after(0).find((e) => e.run_id === run.id && e.type === "run_failed");
+    expect((failedEvent?.payload as { error?: string })?.error).toContain("(after resume)");
   });
 
   it("no resume capability: adapter lacks resume capability, run stays interrupted, no resume attempted", async () => {
