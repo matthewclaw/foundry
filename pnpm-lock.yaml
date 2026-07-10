@@ -75,6 +75,28 @@ importers:
         specifier: ^3.23.5
         version: 3.25.2(zod@3.25.76)
 
+  packages/runtime:
+    dependencies:
+      '@foundry/adapter-api':
+        specifier: workspace:*
+        version: link:../adapter-api
+      '@foundry/core':
+        specifier: workspace:*
+        version: link:../core
+      '@foundry/store':
+        specifier: workspace:*
+        version: link:../store
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.3
+        version: 2.1.9(@types/node@20.19.43)
+
   packages/store:
     dependencies:
       '@foundry/core':
