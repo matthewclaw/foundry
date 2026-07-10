@@ -13,7 +13,7 @@ import type { EngineEvent, ExecutionAdapter, RunSpec } from "@foundry/adapter-ap
 import type { RunQueueJob } from "../scheduler/queue.js";
 
 export interface RunSupervisorOptions {
-  store: Pick<Store, "commands" | "workstreams">;
+  store: Pick<Store, "commands" | "workstreams" | "runs">;
   /** Adapter registry keyed by engine id (contracts.md: Runtime "configured with Store + adapter registry"). */
   adapters: Record<string, ExecutionAdapter>;
   defaultWallClockMs?: number;
@@ -47,8 +47,49 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
 
     const handle = await adapter.start(spec);
 
-    for await (const event of adapter.events(handle)) {
-      handleEvent(run, job, event);
+    let sawRunEnded = false;
+    try {
+      for await (const event of adapter.events(handle)) {
+        if (event.t === "run_ended") sawRunEnded = true;
+        handleEvent(run, job, event);
+      }
+    } catch {
+      // Adapter stream ended abnormally (F1: process crash) — folded below, same as a
+      // watchdog-forced cancel (F2) that the adapter doesn't acknowledge gracefully.
+    }
+    if (!sawRunEnded) {
+      foldAbnormalTermination(run, job);
+    }
+  }
+
+  /**
+   * The event stream ended (threw, or the iterable just completed) without a `run_ended`
+   * — an engine crash (F1) or a forced watchdog interrupt (F2) the adapter didn't
+   * acknowledge with a graceful terminal event. Folds into whatever the run's current
+   * state allows: `starting` (never got going) → `failed`; `running`/`awaiting_input`/
+   * `awaiting_approval` (was actually underway) → `interrupted`, resumable per E4.6.
+   */
+  function foldAbnormalTermination(run: Run, job: RunQueueJob): void {
+    const current = opts.store.runs.get(run.id);
+    if (!current) return;
+    if (current.state === "starting") {
+      opts.store.commands.transitionRunState({
+        id: run.id,
+        workstreamId: job.workstreamId,
+        to: "failed",
+        actorId: null,
+        error: "adapter stream ended before the run started",
+      });
+      return;
+    }
+    if (current.state === "running" || current.state === "awaiting_input" || current.state === "awaiting_approval") {
+      opts.store.commands.transitionRunState({
+        id: run.id,
+        workstreamId: job.workstreamId,
+        to: "interrupted",
+        actorId: null,
+        reason: "adapter stream ended abnormally",
+      });
     }
   }
 

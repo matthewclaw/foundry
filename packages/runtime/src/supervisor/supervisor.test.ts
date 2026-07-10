@@ -121,6 +121,33 @@ describe("createRunSupervisor — E4.2", () => {
     expect(store.workstreams.get(ws)?.state).toBe("waiting");
   });
 
+  it("folds an abnormal stream end (engine crash, F1) into run interrupted", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Crashes mid-run");
+
+    const supervisor = createRunSupervisor({
+      store,
+      adapters: { fake: createFakeAdapter(loadScenario("engine-crash")) },
+    });
+
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/4/context.md",
+      engine_id: "fake",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/4/context.md",
+      engineId: "fake",
+    });
+
+    expect(store.runs.get(run.id)?.state).toBe("interrupted");
+  });
+
   it("throws when asked to run a workstream that isn't runnable (closed)", async () => {
     const store = testStore();
     const agentId = bootstrapAgent(store);
