@@ -18,6 +18,12 @@ export interface RunQueueJob {
   engineId: string;
   agentId?: AgentId;
   teamId?: TeamId;
+  /** Passed through untouched to whatever `execute` does with the job (e.g. the E4.2 run supervisor builds a RunSpec from these). */
+  agentName?: string;
+  workspaceDir?: string;
+  engineConfig?: unknown;
+  orgTools?: { mcpConfig?: object; cliEnv?: Record<string, string> };
+  wallClockMs?: number;
 }
 
 export interface RunQueueLimits {
