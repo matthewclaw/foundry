@@ -4,8 +4,9 @@
  * is runnable end-to-end against *some* conformant adapter directly within this package,
  * independent of the fake adapter's own conformance run in `@foundry/adapter-fake`.
  */
-import type { CapabilitySet, ConformanceBehavior, EngineEvent, ExecutionAdapter, RunHandle, RunSpec } from "./index.js";
-import { describeAdapterContract } from "./index.js";
+import type { CapabilitySet, EngineEvent, ExecutionAdapter, RunHandle, RunSpec } from "./index.js";
+import type { ConformanceBehavior } from "./conformance.js";
+import { describeAdapterContract } from "./conformance.js";
 
 class ReferenceAdapter implements ExecutionAdapter {
   readonly id = "conformance-reference";

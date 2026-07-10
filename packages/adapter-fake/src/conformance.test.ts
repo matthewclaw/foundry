@@ -5,8 +5,8 @@
  * `scenarios/` — those are a separate fixture library for other lanes (runtime, server,
  * e2e), not this suite's driver (OPEN_ISSUES.md #13).
  */
-import type { ConformanceBehavior } from "@foundry/adapter-api";
-import { describeAdapterContract } from "@foundry/adapter-api";
+import type { ConformanceBehavior } from "@foundry/adapter-api/conformance";
+import { describeAdapterContract } from "@foundry/adapter-api/conformance";
 import { createFakeAdapter } from "./adapter.js";
 import type { Scenario, ScenarioStep } from "./scenario.js";
 
