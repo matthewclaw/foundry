@@ -1,9 +1,46 @@
-# Phase 1 — `@foundry/runtime` (Epic E4, partial: E4.1–E4.4 of 6)
+# Phase 1 — `@foundry/runtime` (Epic E4, complete)
 
-Merged to `main` via PR #5 (`phase-1/runtime`, squashed by GitHub UI into merge commit
-`64f1ff3`). **This is a checkpoint, not a completed-epic summary** — E4.5 and E4.6 are
-still open. Written so a fresh session can pick up E4 without re-deriving context from
-git log / roadmap.md.
+E4.1–E4.4 merged to `main` via PR #5 (`phase-1/runtime`, squash commit `64f1ff3`).
+E4.5 + E4.6 completed 2026-07-10 on `phase-1/runtime-reconcile` (this branch), closing
+the epic. Sections below describe all six stories; the "Delegated to Haiku" section
+records what line-by-line review caught in each delegated story (E4.3, E4.4, E4.6 — a
+real bug each round in the timer/state-machine code, never surfaced by the green tests).
+
+### E4.5 — Startup reconciliation + pid sweep (`src/reconcile/reconcile.ts`) ⚠ KEYSTONE
+
+`reconcileOnStartup({ store, pids?, requeue })` — F3: on control-plane restart, every
+non-terminal run folds to what the restart means for it (`starting` → `failed` — no
+`starting → interrupted` edge exists and there is no session to resume; `running` /
+`awaiting_input` / `awaiting_approval` → `interrupted`, keeping `engine_session_id` so
+E4.6/a human can resume; `queued` → handed to `requeue`, re-injected via the new
+`RunQueue.restore(run, job)` which schedules an already-persisted run without a second
+row/`run_queued` event). Emits `system_reconciled`. F7: `createPidRegistry(dir)` is the
+pid-file registry — the supervisor registers `handle.pid` (new **additive optional**
+`RunHandle.pid` field, OPEN_ISSUES #28) while a stream is live; at startup every
+still-registered pid is by definition an orphan: killed if alive
+(`system_orphan_process_killed` recorded), cleared silently if already dead. Tested
+against a file-backed store across a simulated process death and a **real spawned orphan
+process**. The scope question the checkpoint flagged (nothing real to track until E9) was
+resolved *adapter-agnostically*: the fake adapter exposes no pid so registration is a
+no-op today, and E9 gets sweeping for free by putting `pid` on its handles.
+
+### E4.6 — Resume flow (`src/supervisor/supervisor.ts`)
+
+When a stream ends without `run_ended` and the run folds to `interrupted`, the
+supervisor auto-resumes **exactly once**: gates are adapter `capabilities().resume` +
+`resume()` present, non-null `engine_session_id`, and no prior `run_resumed` event for
+this run in the event log (the log makes once-only hold across control-plane restarts).
+The resume reuses the *same run row* via the `interrupted → starting` edge
+(`run_resumed`), then `adapter.resume({ ...spec, sessionRef })` feeds the same watchdog
+loop (`superviseStream`, extracted unchanged from E4.3's execute body). Budget totals
+carry across attempts (a resume can't double the caps); wall-clock/stall restart fresh.
+If the resumed stream also dies, the shared `foldTerminalState` dispatches by current
+state — `failed` if it never reached `run_started` again, `interrupted` otherwise — and
+never resumes twice. The "second failure ⇒ `degraded`" half of the AC needed **zero new
+code**, as predicted: `deriveAgentStatus` (E2.5) counts consecutive `failed` runs, and
+the test proves two graceful `run_ended{failed}` runs flip the agent's projected status
+to `degraded`. Fixtures `resume-after-interrupt-{initial,continuation}.json` are now
+exercised.
 
 ## What's here
 
@@ -58,9 +95,14 @@ argument arrays (no shell string interpolation — command-injection-safe), no n
 ```
 pnpm install    # green
 pnpm run build  # green (tsc, all 5 packages: core, store, adapter-api, adapter-fake, runtime)
-pnpm run test   # green — core 100, adapter-api 44, store 54, adapter-fake 37, runtime 16 (251 total)
-pnpm run lint:deps  # green — 0 dependency-direction violations (209 modules, 750 deps cruised)
+pnpm run test   # green — core 100, adapter-api 44, store 54, adapter-fake 37, runtime 27 (262 total)
+pnpm run lint:deps  # green — 0 dependency-direction violations (213 modules, 771 deps cruised)
 ```
+
+Environment note: this machine runs Node 18 (repo `engines` wants ≥20 — warning only);
+better-sqlite3's native binary must match the Node ABI — if tests fail with
+`ERR_DLOPEN_FAILED`, re-run `npm run install` inside
+`node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3` (per worktree).
 
 ## Every built E4 story's acceptance criterion, covered by a test
 
@@ -70,19 +112,20 @@ pnpm run lint:deps  # green — 0 dependency-direction violations (209 modules, 
 | E4.2 | Fake "happy path" ⇒ run rows, events, workstream state all correct | `supervisor/supervisor.test.ts` (happy-path, needs_input, engine-crash, closed-workstream-refusal — 4 of the 8 tests in this file) |
 | E4.3 | Fake "hang" ⇒ interrupted at stall cap with events; fake "burn" ⇒ cut at budget with `budget_exhausted` | `supervisor/supervisor.test.ts` `describe("watchdogs — E4.3")` (stall, budget, wall-clock, happy-path-no-false-positive — 4 tests; stall/wall-clock tests also assert `adapter.cancel()` was actually called, not just that the run ended up in the right state) |
 | E4.4 | Two workstreams on one repo get isolated worktrees; dirty worktree ⇒ run refused + workstream blocked | `workspace/manager.test.ts` (4 tests, real temp git repos) |
-
-**Not built**: E4.5 (⚠ startup reconciliation + pid sweep), E4.6 (resume flow) — see "Next up."
+| E4.5 | Kill control plane mid-fake-run; restart ⇒ run `interrupted`, orphan killed, queued work requeued (doc-01 success test #1) | `reconcile/reconcile.test.ts` (4 tests: file-backed store abandoned mid-flight + reopened; real spawned orphan killed and recorded; stale pid cleared silently; session id survives for resume) + `queue.test.ts` restore() test |
+| E4.6 | Interrupted fake run auto-resumes once with sessionRef; second failure ⇒ degraded | `supervisor/supervisor.test.ts` `describe("resume flow — E4.6")` (6 tests: happy resume incl. event ordering; resume-also-dies stays interrupted, one attempt; resume dying pre-run_started folds to failed; no-capability and no-sessionRef skip; two failed runs ⇒ projected agent status `degraded`) |
 
 ## Open issues raised
 
-Six, in `docs/implementation/OPEN_ISSUES.md` #22–27 (continuing from E1/E2/E3's): `RunSpec`
+Seven, in `docs/implementation/OPEN_ISSUES.md` #22–28 (continuing from E1/E2/E3's): `RunSpec`
 fields the supervisor can't resolve itself yet (#22), `reasoning_summary` has no catalogue
 slot (#23), `permission_request` deliberately unhandled pending E6.4 (#24),
 `workstream_waiting`'s `waiting_on_ref` is always `null` pending E8.3 (#25), the workspace
-manager isn't wired into the supervisor yet (#26), and a new test-only dependency-cruiser
+manager isn't wired into the supervisor yet (#26), a new test-only dependency-cruiser
 carve-out for `runtime → adapter-fake` (#27, needed because contracts.md's testing
 strategy explicitly wants "runtime + store + fake adapter scenarios" integration tests,
-which the original blanket layer rule didn't allow for).
+which the original blanket layer rule didn't allow for), and the E4.5 pid-sweep scope
+resolution incl. the additive `RunHandle.pid` field (#28).
 
 ## Delegated to Haiku — and what review caught
 
@@ -116,32 +159,33 @@ tests (which were green either way):
    contract, so it passed too. Reverted to the original `error:` field; fixed the test to
    check the emitted event's payload instead.
 
-Lesson banked in memory: green tests from a Haiku swarm are a start, not a stopping point,
-especially for anything touching concurrency/timers.
+**E4.6 (resume flow) was also Haiku-built** (single agent, isolated worktree, stacked on
+the E4.5 branch since both touch `supervisor.ts`), against a brief that pre-pinned the two
+subtleties (same-run-row resume via the `interrupted → starting` edge; `degraded` counts
+only `failed` runs, so its test must use two graceful `run_ended{failed}` runs). Review
+again caught **one real bug the green tests couldn't see**: the resume-failure path
+hardcoded a transition to `interrupted`, an invalid edge when the resumed stream died
+before its `run_started` (run still `starting`) — `transitionRunState` would have thrown
+and stranded the run in `starting`. Fixed by extracting the state-dispatching
+`foldTerminalState` shared by both attempts, plus a regression test (instant-crash resume
+scenario). Two nits: `handle: any` → `RunHandle`, dead comment block.
 
-## Next up: E4.5 and E4.6
+Lesson banked in memory (now 3-for-3 across E4.3/E4.4/E4.6): green tests from a Haiku
+swarm are a start, not a stopping point, especially for anything touching
+concurrency/timers/state-machine edges.
 
-**E4.5 — Startup reconciliation + pid sweep (⚠ KEYSTONE, F3/F7).** Not started. On control-
-plane restart: scan `running` runs → mark `interrupted`, re-queue queued work, resume
-watchdogs (F3 — this is doc-01's success test #1). Pid sweep (F7, killing orphaned engine
-processes) is **greenfield** — no pid-registry code exists anywhere yet, and the fake
-adapter has no real OS process to track, so this part may need to wait until E9
-(claude-code adapter, which does spawn real processes) exists, or be built against an
-adapter-agnostic "did this run's adapter say `run_ended`? no? sweep it" check instead of
-literal PIDs. Worth resolving that scope question before starting.
+## Next up: E5 (`@foundry/server`)
 
-**E4.6 — Resume flow.** Haiku-sized once picked up. Mechanics needed: when a run lands in
-`interrupted` (via the abnormal-termination fold above), if
-`adapter.capabilities().resume` is true and this is the *first* interruption for this
-run's lineage, automatically schedule exactly one resume attempt via `adapter.resume({
-...spec, sessionRef: run.engine_session_id })`; if that resume attempt *also* ends up
-interrupted/failed, do not resume again (stay human-visible). **The "second failure →
-`degraded` + inbox" part of the AC needs no new code**: `degraded` is already a derived
-agent-status value in `packages/store/src/projections/status.ts`
-(`recentConsecutiveFailures >= 2`, built in E2.5) — it'll just start showing up correctly
-once E4.6's resume-once behavior feeds it real consecutive-failure data. Test fixtures
-already exist and are unused so far: `resume-after-interrupt-initial.json` +
-`resume-after-interrupt-continuation.json` in `packages/adapter-fake/scenarios/`.
+E4 is done; the store lane's next epic is E5 (control-plane server: API + SSE feed +
+CLI). The two integration seams E5 must close are already flagged: OPEN_ISSUES #22
+(the `Runtime` facade — resolving agentName/workspaceDir/orgTools/engineConfig from the
+store + policy so `enqueue({workstreamId, trigger})` works as contracts.md specifies) and
+#26 (wiring the E4.4 workspace manager into that facade: acquire before `adapter.start`,
+release on terminal, refuse the run if acquisition fails). E5.1's startup orchestration
+is where `reconcileOnStartup` gets called (migrate → reconcile → listen), passing
+`RunQueue.restore` as the `requeue` callback and a `createPidRegistry(<dataDir>/pids)`.
+Technology per doc-08: Fastify + SSE — note the Node-18 environment constraint above
+(Fastify 4, not 5, until Node is upgraded).
 
 ## Branch/worktree hygiene note
 
@@ -149,4 +193,6 @@ Unlike E2/E3 (built in a shared working directory, per their SUMMARY docs' "shar
 workspace note" sections), this epic used isolated `git worktree`s throughout — one for
 the main `phase-1/runtime` line of work, one each for the two parallel Haiku subagents
 (`phase-1/runtime-watchdogs`, `phase-1/runtime-workspace`, both merged and deleted after
-landing). No cross-lane collisions this time.
+landing), and one for E4.6's Haiku agent (`phase-1/runtime-resume`, stacked on
+`phase-1/runtime-reconcile` because both stories touch `supervisor.ts` — stacking instead
+of parallelizing was the collision-avoidance this time). No cross-lane collisions.
