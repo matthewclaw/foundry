@@ -1,0 +1,31 @@
+{
+  "name": "@foundry/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Foundry L2 run scheduler, run supervisor, workspace manager. Depends: core, store, adapter-api.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@foundry/adapter-api": "workspace:*",
+    "@foundry/core": "workspace:*",
+    "@foundry/store": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}

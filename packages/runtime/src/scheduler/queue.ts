@@ -1,0 +1,127 @@
+/**
+ * E4.1 — run queue: per-workstream serialization, concurrency caps, human-first priority
+ * (03-system-architecture.md "The Agent Runtime" — Scheduler: "FIFO with human-triggered
+ * runs prioritized over agent-triggered ones. Nothing fancier until proven necessary.").
+ *
+ * Enqueueing creates the `Run` row via the store's existing `createRun` mutation (which
+ * emits `run_queued`) rather than reinventing event emission here. Actually invoking the
+ * adapter is the run supervisor's job (E4.2) — this queue only decides *when* a queued
+ * run is allowed to start, via the `execute` callback the caller supplies.
+ */
+import type { AgentId, Run, RunTrigger, TeamId, WorkstreamId } from "@foundry/core";
+import type { Store } from "@foundry/store";
+
+export interface RunQueueJob {
+  workstreamId: WorkstreamId;
+  trigger: RunTrigger;
+  inputContextRef: string;
+  engineId: string;
+  agentId?: AgentId;
+  teamId?: TeamId;
+}
+
+export interface RunQueueLimits {
+  maxConcurrentOrg?: number;
+  maxConcurrentPerAgent?: number;
+  maxConcurrentPerTeam?: number;
+}
+
+export interface RunQueueOptions {
+  store: Pick<Store, "commands">;
+  limits?: RunQueueLimits;
+  /** Invoked when a queued job is allowed to start; runtime's next slot opens once this settles. */
+  execute(run: Run, job: RunQueueJob): Promise<void>;
+}
+
+export interface RunQueue {
+  /** Persists the run (`run_queued` event included) and queues it for execution. */
+  enqueue(job: RunQueueJob): Run;
+  pendingCount(): number;
+  activeCount(): number;
+}
+
+interface Entry {
+  run: Run;
+  job: RunQueueJob;
+}
+
+export function createRunQueue(opts: RunQueueOptions): RunQueue {
+  const limits = opts.limits ?? {};
+  const pending: Entry[] = [];
+  const activeWorkstreams = new Set<WorkstreamId>();
+  const activePerAgent = new Map<AgentId, number>();
+  const activePerTeam = new Map<TeamId, number>();
+  let activeTotal = 0;
+
+  function canStart(job: RunQueueJob): boolean {
+    if (activeWorkstreams.has(job.workstreamId)) return false;
+    if (limits.maxConcurrentOrg !== undefined && activeTotal >= limits.maxConcurrentOrg) return false;
+    if (
+      job.agentId &&
+      limits.maxConcurrentPerAgent !== undefined &&
+      (activePerAgent.get(job.agentId) ?? 0) >= limits.maxConcurrentPerAgent
+    )
+      return false;
+    if (
+      job.teamId &&
+      limits.maxConcurrentPerTeam !== undefined &&
+      (activePerTeam.get(job.teamId) ?? 0) >= limits.maxConcurrentPerTeam
+    )
+      return false;
+    return true;
+  }
+
+  /** First runnable human-triggered job, else the first runnable job — both in FIFO order. */
+  function pickNext(): number {
+    let firstRunnable = -1;
+    for (let i = 0; i < pending.length; i++) {
+      const entry = pending[i]!;
+      if (!canStart(entry.job)) continue;
+      if (entry.job.trigger === "human_message") return i;
+      if (firstRunnable === -1) firstRunnable = i;
+    }
+    return firstRunnable;
+  }
+
+  function start(entry: Entry): void {
+    activeWorkstreams.add(entry.job.workstreamId);
+    activeTotal++;
+    if (entry.job.agentId) activePerAgent.set(entry.job.agentId, (activePerAgent.get(entry.job.agentId) ?? 0) + 1);
+    if (entry.job.teamId) activePerTeam.set(entry.job.teamId, (activePerTeam.get(entry.job.teamId) ?? 0) + 1);
+
+    void opts.execute(entry.run, entry.job).finally(() => {
+      activeWorkstreams.delete(entry.job.workstreamId);
+      activeTotal--;
+      if (entry.job.agentId)
+        activePerAgent.set(entry.job.agentId, Math.max(0, (activePerAgent.get(entry.job.agentId) ?? 1) - 1));
+      if (entry.job.teamId)
+        activePerTeam.set(entry.job.teamId, Math.max(0, (activePerTeam.get(entry.job.teamId) ?? 1) - 1));
+      drain();
+    });
+  }
+
+  function drain(): void {
+    for (;;) {
+      const idx = pickNext();
+      if (idx === -1) return;
+      const [entry] = pending.splice(idx, 1);
+      start(entry!);
+    }
+  }
+
+  return {
+    enqueue(job) {
+      const run = opts.store.commands.createRun({
+        workstream_id: job.workstreamId,
+        trigger: job.trigger,
+        input_context_ref: job.inputContextRef,
+        engine_id: job.engineId,
+      });
+      pending.push({ run, job });
+      drain();
+      return run;
+    },
+    pendingCount: () => pending.length,
+    activeCount: () => activeTotal,
+  };
+}
