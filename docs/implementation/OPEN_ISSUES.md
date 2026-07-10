@@ -295,3 +295,70 @@ original (verified by a round-trip test that deletes the source directory before
 verifying the restored copy). Flagging for E5/CLI: any code reading the `artifacts` table
 directly (rather than through store's `readArtifact`) must join the row's `path` against
 the store's configured `dataDir`, not treat it as a standalone absolute path.
+
+---
+
+# Open Issues — raised during E4 (`@foundry/runtime`, E4.1–E4.4) implementation
+
+Same posture as above. `@foundry/core`, `@foundry/store`, and `@foundry/adapter-api` are
+all frozen for this phase (E1/E2/E3 merged) — none of these touch them. E4.5 and E4.6 are
+not built yet (see `SUMMARY-E4-partial.md`); several items below are exactly the gaps the
+next session needs to close them.
+
+## 22. `RunSpec` fields the supervisor can't yet resolve itself
+
+`RunSupervisor.execute` builds the adapter's `RunSpec` (`agentName`, `workspaceDir`,
+`orgTools`, `engineConfig`, `limits.wallClockMs`) entirely from caller-supplied fields on
+`RunQueueJob` — it does not look up the agent's name from the store, does not call the
+workspace manager (#26 below) for `workspaceDir`, and has no org-tools/policy source to
+pull `orgTools`/`engineConfig` from. This is intentional for E4.1–E4.4 (those concerns —
+context composition, policy, org-tools MCP — belong to E5.6/E6, which don't exist yet),
+but means the supervisor is not yet callable with only a `workstreamId` + `trigger`
+the way contracts.md's final `Runtime.enqueue({workstreamId, trigger})` signature implies.
+Whoever builds the `Runtime` facade (assembling scheduler + supervisor + workspace manager
+into the one contracts.md interface) needs to add this resolution step.
+
+## 23. `reasoning_summary` `EngineEvent` has no catalogue event type
+
+Same gap as #15, seen now from the consuming side: the run supervisor's `handleEvent`
+recognizes `reasoning_summary` but silently drops it (no store write) since
+`EVENT_CATALOGUE` (frozen, E1) has no `run_reasoning_summary` type. If reasoning
+summaries should be persisted/visible in the timeline, that's a new additive-only
+catalogue entry, not a runtime-side workaround.
+
+## 24. `permission_request` `EngineEvent` unhandled in the run supervisor
+
+Deliberately: mapping an engine's permission prompt to a Foundry approval item is E6.4's
+job ("Permission hooks → Foundry approvals"), and no approvals-request flow exists yet in
+runtime (only in store's `requestApproval`/`decideApproval` commands, unwired to runtime).
+The supervisor currently just drops `permission_request` events. E6.4 needs to add a hook
+here — likely the same `handleEvent` switch, calling into `store.commands.requestApproval`
+and transitioning the run to `awaiting_approval`.
+
+## 25. `awaiting_input`'s `workstream_waiting` transition passes `waitingOnRef: null`
+
+Doc-02 says a `waiting` workstream's `waiting_on_ref` names *what* it's waiting on (a
+message, approval, or dependency). At the point the run supervisor sees an `awaiting_input`
+`EngineEvent`, no `Message` exists yet to reference — question delivery to a human/agent is
+E8.3's job. Runtime always passes `null` here; E8.3 (or whichever story turns "the engine
+asked a question" into an actual inbox-visible `Message`) should thread the real ref through.
+
+## 26. Workspace manager (E4.4) is a standalone module, not wired into the run supervisor
+
+`packages/runtime/src/workspace/manager.ts`'s `createWorkspaceManager` (`acquireGitWorktree`,
+`acquireScratchDir`, `release`) satisfies E4.4's acceptance criterion on its own (isolated
+worktrees; dirty worktree ⇒ refused + workstream `blocked`) but the run supervisor does not
+call it — `RunSpec.workspaceDir` is still whatever the caller passes on `RunQueueJob`
+(see #22). Wiring — acquire before `adapter.start()`, release after a terminal state, refuse
+the run outright if acquisition fails — is a small follow-up integration task, deliberately
+left for whoever builds the `Runtime` facade so it isn't done twice.
+
+## 27. `.dependency-cruiser.cjs` test-only layering carve-out: `runtime` → `adapter-fake`
+
+The original layer rule (`runtime: ["core", "store", "adapter-api"]`) blocked exactly what
+contracts.md's testing-strategy table asks for: "Runtime … Integration tests: runtime +
+store + fake adapter scenarios." Added a second rule generator (`TEST_ONLY_ALLOWED`) that
+permits `packages/runtime/src/**/*.test.ts` (and only `*.test.ts` — production code is
+still strictly layered) to import `@foundry/adapter-fake`. Flagging since it's a new kind
+of rule (previous layer violations were unconditional) — if a future package needs the same
+"test-only" exception, this is the pattern to extend, not a bespoke one-off.
