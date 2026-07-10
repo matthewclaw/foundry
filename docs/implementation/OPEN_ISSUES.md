@@ -378,3 +378,40 @@ returns and gets orphan sweeping with zero further wiring. The catalogue's reser
 `system_orphan_process_killed` / `system_reconciled` types (E1.3) are now emitted.
 Deliberate ceiling: the sweep kills by pid with no pid-reuse guard (fine for a local
 single-user control plane; verify process start time if this ever multi-tenants).
+
+---
+
+# Open Issues — raised during E5 (`@foundry/server` + Runtime facade) implementation
+
+## 29. `{run_id}` / `{agent_id}` tokens in `createRun.input_context_ref` / `createAgent.memory_ref`
+
+Doc-05's layout (`runs/<run-id>/context.md`, `agents/<agent-id>/memory`) keys paths by
+ids that only exist once the row is created, but both create-inputs demand the path up
+front. Resolution: `createRun` substitutes a literal `{run_id}` token (and `createAgent`
+an `{agent_id}` token) with the id it generates — additive, no existing caller breaks,
+and the recorded refs now match the documented layout exactly. If a future audit wants
+the pre-substitution template preserved, that's a new column, not a behaviour change.
+
+## 30. Workspace release timing: on workstream close, not per-run
+
+#26's literal wording ("release after a terminal state") conflicted with E4.4's
+worktree-reuse design and doc-05's retention table ("Workspaces (worktrees): removed on
+workstream archive"). The Runtime facade keeps a workstream's worktree/scratch dir alive
+across runs and exposes `releaseWorkspace(workstreamId)`, which the close-workstream
+route calls. Doc-05 wins over the issue-log phrasing.
+
+## 31. No catalogue event for agent rename / role / team change ⇒ `PATCH /api/agents/:id` is charter+engine only
+
+The frozen catalogue has `agent_charter_updated` and `agent_engine_rebound` but nothing
+for name/role/team_id edits, and doc-05's write discipline forbids event-less mutations.
+PATCH therefore accepts `charter_md` (new immutable charter version) and `engine`
+(rebind, doc-01 success test #3) and rejects other fields with 422. Supporting renames
+is one additive catalogue type (`agent_profile_updated`?) away — architect's call.
+
+## 32. Single-human-actor assumption (`getOrCreateHumanActor`)
+
+The API has no auth and doc-08 scopes v1 to a local single-user tool, but messages need
+a `from_actor_id`. The store lazily creates one `kind='human'` actor row (no event —
+same catalogue gap/precedent as threads/teams, #17) and every human-attributed API
+command uses it. Multi-user is a server-mode concern; this is the seam where real
+identity would plug in.

@@ -47,6 +47,12 @@ export interface RunQueue {
    * reconciliation's re-queue path (E4.5/F3). Same scheduling rules as `enqueue`.
    */
   restore(run: Run, job: RunQueueJob): void;
+  /**
+   * Cancels a run that is still waiting in this queue (state `queued`): removes it and
+   * transitions it to `cancelled`. Returns false if the run isn't pending here (already
+   * started or unknown) — cancelling a *live* run is the supervisor's job (E5 facade).
+   */
+  cancelPending(runId: string, reason?: string): boolean;
   pendingCount(): number;
   activeCount(): number;
 }
@@ -135,6 +141,19 @@ export function createRunQueue(opts: RunQueueOptions): RunQueue {
     restore(run, job) {
       pending.push({ run, job });
       drain();
+    },
+    cancelPending(runId, reason) {
+      const idx = pending.findIndex((e) => e.run.id === runId);
+      if (idx === -1) return false;
+      const [entry] = pending.splice(idx, 1);
+      opts.store.commands.transitionRunState({
+        id: entry!.run.id,
+        workstreamId: entry!.job.workstreamId,
+        to: "cancelled",
+        actorId: null,
+        reason: reason ?? "cancelled while queued",
+      });
+      return true;
     },
     pendingCount: () => pending.length,
     activeCount: () => activeTotal,

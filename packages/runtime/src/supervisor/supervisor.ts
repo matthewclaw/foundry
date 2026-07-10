@@ -24,6 +24,12 @@ export interface RunSupervisorOptions {
   budgetCaps?: { tokensIn?: number; tokensOut?: number; costUsd?: number };
   /** F7: engine pids registered here while their stream is live, swept on startup (E4.5). */
   pids?: PidRegistry;
+  /**
+   * E5 facade: live (adapter, handle) pairs keyed by run id, so `Runtime.cancelRun` can
+   * reach a run that is already streaming. Maintained here (set around each attempt's
+   * stream, deleted when it ends); owned/read by the caller.
+   */
+  liveHandles?: Map<string, { adapter: ExecutionAdapter; handle: RunHandle }>;
 }
 
 const DEFAULT_WALL_CLOCK_MS = 10 * 60 * 1000;
@@ -56,6 +62,7 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
     const eventIterator = adapter.events(handle)[Symbol.asyncIterator]();
     let sawRunEnded = false;
     const WATCHDOG_TIMEOUT = Symbol("watchdog-timeout");
+    opts.liveHandles?.set(run.id, { adapter, handle });
 
     try {
       for (;;) {
@@ -141,8 +148,10 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
       // Adapter stream ended abnormally (F1: process crash) — folded below, same as a
       // watchdog-forced cancel (F2) that the adapter doesn't acknowledge gracefully.
     } finally {
-      // Stream over (gracefully or not) — the engine process is no longer ours to sweep.
+      // Stream over (gracefully or not) — the engine process is no longer ours to sweep
+      // or cancel.
       if (opts.pids && typeof handle.pid === "number") opts.pids.unregister(run.id);
+      opts.liveHandles?.delete(run.id);
     }
     return { sawRunEnded, totals: { tokensInTotal, tokensOutTotal, costUsdTotal } };
   }

@@ -29,6 +29,10 @@ export interface CreateAgentInput {
 export function createAgent(mutate: Mutate, input: CreateAgentInput): { agentId: AgentId; actorId: ActorId } {
   const actorId = newActorId();
   const agentId = newAgentId();
+  // Callers can't know the id before it exists, so the doc-05 conventional layout
+  // (`agents/<agent-id>/memory`) is expressible via a token — same pattern as
+  // createRun's `{run_id}` (OPEN_ISSUES #29).
+  const memoryRef = input.memory_ref.replace("{agent_id}", agentId);
   const now = new Date().toISOString();
 
   return mutate({
@@ -49,7 +53,7 @@ export function createAgent(mutate: Mutate, input: CreateAgentInput): { agentId:
           input.team_id,
           input.engine_id,
           toJson(input.engine_config),
-          input.memory_ref,
+          memoryRef,
           toJson(input.default_workspace_ref ?? null),
           toJson(input.policy_overrides ?? {}),
           now
@@ -102,6 +106,88 @@ export function transitionAgentState(db: Db, mutate: Mutate, args: TransitionAge
       },
     ],
   });
+}
+
+/** E5.2: charter edit = a new immutable version + `agent_charter_updated` (doc-02). */
+export function updateAgentCharter(
+  db: Db,
+  mutate: Mutate,
+  args: { agentId: AgentId; bodyMd: string; editedByActor: ActorId }
+): { version: number } {
+  const row = db.prepare(`SELECT charter_version FROM agents WHERE id = ?`).get(args.agentId) as
+    | { charter_version: number }
+    | undefined;
+  if (!row) throw new Error(`agent not found: ${args.agentId}`);
+  const version = row.charter_version + 1;
+  const now = new Date().toISOString();
+  mutate({
+    apply: (tx) => {
+      tx.db
+        .prepare(`INSERT INTO agent_charters (agent_id, version, body_md, edited_by_actor, created_at) VALUES (?, ?, ?, ?, ?)`)
+        .run(args.agentId, version, args.bodyMd, args.editedByActor, now);
+      tx.db.prepare(`UPDATE agents SET charter_version = ? WHERE id = ?`).run(version, args.agentId);
+    },
+    events: [
+      {
+        actor_id: args.editedByActor,
+        entity_type: "agent",
+        entity_id: args.agentId,
+        type: "agent_charter_updated",
+        payload: { version, edited_by_actor: args.editedByActor },
+      },
+    ],
+  });
+  return { version };
+}
+
+/** E5.2 / doc-01 success test #3: swap the engine binding, identity/memory/history untouched. */
+export function rebindAgentEngine(
+  db: Db,
+  mutate: Mutate,
+  args: { agentId: AgentId; engine: { id: string; config?: unknown }; actorId: ActorId | null }
+): void {
+  const row = db.prepare(`SELECT engine_id FROM agents WHERE id = ?`).get(args.agentId) as
+    | { engine_id: string }
+    | undefined;
+  if (!row) throw new Error(`agent not found: ${args.agentId}`);
+  mutate({
+    apply: (tx) => {
+      tx.db
+        .prepare(`UPDATE agents SET engine_id = ?, engine_config_json = ? WHERE id = ?`)
+        .run(args.engine.id, toJson(args.engine.config), args.agentId);
+    },
+    events: [
+      {
+        actor_id: args.actorId,
+        entity_type: "agent",
+        entity_id: args.agentId,
+        type: "agent_engine_rebound",
+        payload: { previous_engine_id: row.engine_id, new_engine_id: args.engine.id },
+      },
+    ],
+  });
+}
+
+/**
+ * The single human operator's Actor row (v1 is single-human; doc-03: "Agents and humans
+ * are both actors"). Created lazily with no event — same catalogue gap/precedent as
+ * threads/teams (OPEN_ISSUES #17).
+ */
+export function getOrCreateHumanActor(db: Db, mutate: Mutate, displayName = "Human"): ActorId {
+  const existing = db.prepare(`SELECT id FROM actors WHERE kind = 'human' ORDER BY created_at LIMIT 1`).get() as
+    | { id: string }
+    | undefined;
+  if (existing) return existing.id as ActorId;
+  const id = newActorId();
+  mutate({
+    apply: (tx) => {
+      tx.db
+        .prepare(`INSERT INTO actors (id, kind, display_name, created_at) VALUES (?, 'human', ?, ?)`)
+        .run(id, displayName, new Date().toISOString());
+    },
+    events: [],
+  });
+  return id;
 }
 
 export interface AgentRow {

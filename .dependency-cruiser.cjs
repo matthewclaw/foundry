@@ -33,6 +33,7 @@ const ALLOWED = {
  */
 const TEST_ONLY_ALLOWED = {
   runtime: ["adapter-fake"],
+  server: ["adapter-fake"],
 };
 
 const fromToRules = Object.entries(ALLOWED).flatMap(([from, allowed]) => {

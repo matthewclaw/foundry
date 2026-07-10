@@ -26,6 +26,9 @@ import { createProjections, type Projections } from "./projections/index.js";
 import {
   createAgent,
   transitionAgentState,
+  updateAgentCharter,
+  rebindAgentEngine,
+  getOrCreateHumanActor,
   type CreateAgentInput,
   type TransitionAgentStateArgs,
 } from "./mutations/agents.js";
@@ -76,6 +79,9 @@ export interface StoreConfig {
 export interface StoreCommands {
   createAgent(input: CreateAgentInput): ReturnType<typeof createAgent>;
   transitionAgentState(args: TransitionAgentStateArgs): void;
+  updateAgentCharter(args: Parameters<typeof updateAgentCharter>[2]): { version: number };
+  rebindAgentEngine(args: Parameters<typeof rebindAgentEngine>[2]): void;
+  getOrCreateHumanActor(displayName?: string): ReturnType<typeof getOrCreateHumanActor>;
   createTeam(input: CreateTeamInput): Team;
   createWorkstream(input: CreateWorkstreamInput): Workstream;
   transitionWorkstreamState(args: TransitionWorkstreamStateArgs): void;
@@ -131,6 +137,9 @@ export function createStore(config: StoreConfig): Store {
     commands: {
       createAgent: (input) => createAgent(mutate, input),
       transitionAgentState: (args) => transitionAgentState(db, mutate, args),
+      updateAgentCharter: (args) => updateAgentCharter(db, mutate, args),
+      rebindAgentEngine: (args) => rebindAgentEngine(db, mutate, args),
+      getOrCreateHumanActor: (displayName) => getOrCreateHumanActor(db, mutate, displayName),
       createTeam: (input) => createTeam(mutate, input),
       createWorkstream: (input) => createWorkstream(mutate, input),
       transitionWorkstreamState: (args) => transitionWorkstreamState(db, mutate, args),

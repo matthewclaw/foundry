@@ -1,4 +1,4 @@
-import {
+﻿import {
   newRunId,
   type ActorId,
   type Run,
@@ -22,6 +22,9 @@ export interface CreateRunInput {
 
 export function createRun(mutate: Mutate, input: CreateRunInput): Run {
   const id = newRunId();
+  // The conventional context path (05: `runs/<run-id>/context.md`) needs the id this
+  // function generates, so callers may use a `{run_id}` token (OPEN_ISSUES #29).
+  const inputContextRef = input.input_context_ref.replace("{run_id}", id);
   const now = new Date().toISOString();
 
   return mutate({
@@ -34,13 +37,13 @@ export function createRun(mutate: Mutate, input: CreateRunInput): Run {
           `INSERT INTO runs (id, workstream_id, seq, trigger, input_context_ref, engine_id, engine_session_id, state, result_json, usage_json, started_at, ended_at)
            VALUES (?, ?, ?, ?, ?, ?, NULL, 'queued', NULL, NULL, NULL, NULL)`
         )
-        .run(id, input.workstream_id, next, input.trigger, input.input_context_ref, input.engine_id);
+        .run(id, input.workstream_id, next, input.trigger, inputContextRef, input.engine_id);
       return {
         id,
         workstream_id: input.workstream_id,
         seq: next,
         trigger: input.trigger,
-        input_context_ref: input.input_context_ref,
+        input_context_ref: inputContextRef,
         engine: input.engine_id,
         engine_session_id: null,
         state: "queued",
