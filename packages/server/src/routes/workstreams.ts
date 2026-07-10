@@ -93,7 +93,7 @@ export function registerWorkstreamRoutes(app: FastifyInstance, ctx: RouteContext
         thread_id: thread.id,
         from_actor_id: human,
         to_actor_id: agent.actor_id,
-        type: messageType as any,
+        type: messageType,
         body_md: body.body_md,
       });
 

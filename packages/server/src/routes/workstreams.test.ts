@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type FoundryServer } from "../server.js";
 import { createFakeAdapter, loadScenario } from "@foundry/adapter-fake";
+import { newAgentId } from "@foundry/core";
 
 describe("Workstream routes (E5.3)", () => {
   let server: FoundryServer;
@@ -115,7 +116,8 @@ describe("Workstream routes (E5.3)", () => {
       method: "POST",
       url: "/api/workstreams",
       payload: {
-        agent_id: "nonexistent",
+        // Well-formed but nonexistent id: passes schema validation, hits the 404 path.
+        agent_id: newAgentId(),
         title: "WS",
         goal_md: "# Goal",
       },

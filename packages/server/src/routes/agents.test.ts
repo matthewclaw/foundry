@@ -251,11 +251,14 @@ describe("Agent routes (E5.2)", () => {
     });
     const agentId = JSON.parse(createRes.body).id;
 
+    // A well-formed team id, so the request passes schema validation and reaches the
+    // route's #31 rejection (a malformed id would 400 at the Zod layer instead).
+    const team = server.store.commands.createTeam({ name: "T2", description: "", default_policy: {} });
     const patchRes = await server.app.inject({
       method: "PATCH",
       url: `/api/agents/${agentId}`,
       payload: {
-        team_id: "some-team-id",
+        team_id: team.id,
       },
     });
 
