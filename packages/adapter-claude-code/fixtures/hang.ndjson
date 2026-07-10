@@ -1,0 +1,2 @@
+﻿{"type":"system","subtype":"init","session_id":"sess-cc-hang","model":"claude-sonnet-5","tools":[],"uuid":"u1"}
+{"type":"assistant","message":{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"Starting a long operation..."}]},"session_id":"sess-cc-hang","uuid":"u2"}
