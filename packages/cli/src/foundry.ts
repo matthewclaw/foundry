@@ -3,14 +3,11 @@
  * E5.7 — foundry CLI: init, daemon start/stop, agent create, backup.
  * L4: depends on core only (via HTTP).
  */
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { parseArgs } from "node:util";
-import { promisify } from "node:util";
 import { CreateAgentRequestSchema } from "@foundry/core";
-
-const exec = promisify(execFile);
 
 function printError(msg: string): never {
   console.error(msg);
@@ -115,21 +112,19 @@ async function daemonStart(dir: string): Promise<void> {
   const daemonPath = locateDaemonScript();
 
   // Read config to get host:port
-  const config = JSON.parse(readFileSync(join(dir, "foundry.config.json"), "utf-8"));
+  const config = readJsonFile(join(dir, "foundry.config.json"));
   const host = config.host || "127.0.0.1";
   const port = config.port || 4180;
   const baseUrl = `http://${host}:${port}`;
 
-  // Spawn daemon detached
-  const child = execFile("node", [daemonPath, "--data-dir", dir], {
+  // Spawn daemon detached with no shared stdio — execFile can't do either (it
+  // buffers stdio by design), which would keep this CLI process alive forever.
+  const child = spawn(process.execPath, [daemonPath, "--data-dir", dir], {
     detached: true,
     stdio: "ignore",
-  } as any);
-
-  // Unref to allow parent to exit
-  if (child.unref) {
-    child.unref();
-  }
+    windowsHide: true,
+  });
+  child.unref();
 
   // First wait for pidfile to be created (daemon initialized)
   const pidStartTime = Date.now();
@@ -199,8 +194,11 @@ async function daemonStop(dir: string): Promise<void> {
 // =============================================================================
 
 async function handleAgent(argv: string[]): Promise<void> {
+  if (argv[0] !== "create") {
+    printError("Usage: foundry agent create --name <n> --role <r> [...]");
+  }
   const parsed = parseArgs({
-    args: argv,
+    args: argv.slice(1),
     options: {
       name: { type: "string" },
       role: { type: "string" },
@@ -234,7 +232,7 @@ async function handleAgent(argv: string[]): Promise<void> {
   let serverUrl = parsed.values.server;
 
   if (!serverUrl) {
-    const config = JSON.parse(readFileSync(join(dir, "foundry.config.json"), "utf-8"));
+    const config = readJsonFile(join(dir, "foundry.config.json"));
     const host = config.host || "127.0.0.1";
     const port = config.port || 4180;
     serverUrl = `http://${host}:${port}`;
@@ -289,7 +287,7 @@ async function handleBackup(argv: string[]): Promise<void> {
   let serverUrl = parsed.values.server;
 
   if (!serverUrl) {
-    const config = JSON.parse(readFileSync(join(dir, "foundry.config.json"), "utf-8"));
+    const config = readJsonFile(join(dir, "foundry.config.json"));
     const host = config.host || "127.0.0.1";
     const port = config.port || 4180;
     serverUrl = `http://${host}:${port}`;
@@ -344,6 +342,11 @@ function locateDaemonScript(): string {
   }
 
   printError("Could not locate daemon script. Set FOUNDRY_DAEMON_PATH env var.");
+}
+
+/** Windows editors/tools regularly write UTF-8 BOMs; JSON.parse rejects them. */
+function readJsonFile(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path, "utf-8").replace(/^﻿/, ""));
 }
 
 function findRepoRoot(): string | null {
