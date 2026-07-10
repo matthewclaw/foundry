@@ -1,0 +1,26 @@
+{
+  "name": "permission-request-denied",
+  "description": "The engine asks for permission before a privileged action and is denied; the run ends failed rather than proceeding with the privileged action.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-perm-denied" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "I need to push to the main branch to continue." } },
+    {
+      "type": "event",
+      "event": {
+        "t": "permission_request",
+        "requestId": "perm-denied-1",
+        "description": "Push directly to main?"
+      }
+    },
+    { "type": "sleep", "ms": 10 },
+    {
+      "type": "event",
+      "event": {
+        "t": "run_ended",
+        "outcome": "failed",
+        "error": "permission_denied",
+        "sessionRef": "sess-perm-denied"
+      }
+    }
+  ]
+}

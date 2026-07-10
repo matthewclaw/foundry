@@ -1,0 +1,10 @@
+{
+  "name": "engine-crash",
+  "description": "F1 — engine process crashes mid-run. events() throws instead of yielding run_ended; the runtime must detect the abnormal stream end, mark the run interrupted, and (per F1) auto-resume once via resume-after-interrupt-*.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-crash" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "Starting work..." } },
+    { "type": "sleep", "ms": 10 },
+    { "type": "crash", "message": "simulated engine crash: process exited unexpectedly" }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "resume-after-interrupt-continuation",
+  "description": "Second half of the resume-after-interrupt pair: drive this via adapter.resume({...spec, sessionRef: 'sess-resume-demo'}, engineConfig.scenarioName set to this file) to see the run pick up and complete cleanly, echoing the same sessionRef back on run_ended.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-resume-demo" } },
+    { "type": "event", "event": { "t": "output_delta", "text": "Resuming where I left off..." } },
+    { "type": "event", "event": { "t": "output_delta", "text": "Finished the remaining work." } },
+    {
+      "type": "event",
+      "event": {
+        "t": "run_ended",
+        "outcome": "completed",
+        "finalText": "Completed after resume.",
+        "sessionRef": "sess-resume-demo"
+      }
+    }
+  ]
+}

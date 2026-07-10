@@ -1,0 +1,20 @@
+{
+  "name": "happy-path",
+  "description": "Baseline successful run: starts, streams a little output, completes cleanly.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-happy-path" } },
+    { "type": "sleep", "ms": 5 },
+    { "type": "event", "event": { "t": "output_delta", "text": "Looking at the request..." } },
+    { "type": "sleep", "ms": 5 },
+    { "type": "event", "event": { "t": "output_delta", "text": "Done." } },
+    {
+      "type": "event",
+      "event": {
+        "t": "run_ended",
+        "outcome": "completed",
+        "finalText": "Task complete.",
+        "sessionRef": "sess-happy-path"
+      }
+    }
+  ]
+}

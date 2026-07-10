@@ -1,0 +1,23 @@
+{
+  "name": "budget-burn-cutoff",
+  "description": "F6 — cost blowout. Emits climbing usage_delta events (a runtime budget-cutoff watchdog test watches the running total cross its cap here) then hangs; a cooperative cancel at the cap yields run_ended{outcome:'failed', error:'budget_exhausted'} — mirrors the 07 F6 response 'cut off at cap -> task blocked(budget_exhausted)'.",
+  "steps": [
+    { "type": "event", "event": { "t": "run_started", "sessionRef": "sess-budget-burn" } },
+    { "type": "event", "event": { "t": "usage_delta", "tokensIn": 2000, "tokensOut": 500, "costUsd": 0.35 } },
+    { "type": "sleep", "ms": 5 },
+    { "type": "event", "event": { "t": "output_delta", "text": "Still working..." } },
+    { "type": "event", "event": { "t": "usage_delta", "tokensIn": 6000, "tokensOut": 1800, "costUsd": 1.1 } },
+    { "type": "sleep", "ms": 5 },
+    { "type": "event", "event": { "t": "usage_delta", "tokensIn": 9000, "tokensOut": 2600, "costUsd": 1.95 } },
+    { "type": "hang" },
+    {
+      "type": "event",
+      "event": {
+        "t": "run_ended",
+        "outcome": "failed",
+        "error": "budget_exhausted",
+        "sessionRef": "sess-budget-burn"
+      }
+    }
+  ]
+}
