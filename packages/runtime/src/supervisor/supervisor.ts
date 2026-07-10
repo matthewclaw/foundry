@@ -65,6 +65,7 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
     // Manual async iterator for racing against watchdogs
     const eventIterator = adapter.events(handle)[Symbol.asyncIterator]();
     let sawRunEnded = false;
+    const WATCHDOG_TIMEOUT = Symbol("watchdog-timeout");
 
     try {
       for (;;) {
@@ -73,7 +74,6 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
         if (elapsedWallClock >= wallClockMs && !cancelled) {
           cancelled = true;
           await adapter.cancel(handle);
-          // Fall through to consume remaining events
         }
 
         // Check stall timeout before attempting to get next event
@@ -81,38 +81,40 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
         if (elapsedStall >= stallMs && !cancelled) {
           cancelled = true;
           await adapter.cancel(handle);
-          // Fall through to consume remaining events
         }
 
         // Race next event against wall-clock and stall timers
-        const wallClockTimeoutMs = wallClockMs - elapsedWallClock;
-        const stallTimeoutMs = stallMs - elapsedStall;
+        const wallClockTimeoutMs = wallClockMs - (Date.now() - startTime);
+        const stallTimeoutMs = stallMs - (Date.now() - lastEventTime);
         const minTimeoutMs = Math.min(
           wallClockTimeoutMs > 0 ? wallClockTimeoutMs : Infinity,
           stallTimeoutMs > 0 ? stallTimeoutMs : Infinity
         );
 
-        let nextEvent: IteratorResult<EngineEvent>;
+        let raced: IteratorResult<EngineEvent> | typeof WATCHDOG_TIMEOUT;
 
-        if (minTimeoutMs <= 0 || !isFinite(minTimeoutMs)) {
-          // Already timed out or timeouts disabled, just get next event
-          nextEvent = await eventIterator.next();
+        if (!isFinite(minTimeoutMs)) {
+          // Both watchdogs already tripped (or disabled) — just wait for the adapter to
+          // respond to the cancel() already issued above, no artificial timeout needed.
+          raced = await eventIterator.next();
         } else {
-          // Race the iterator against the timeout
-          const timeoutPromise = new Promise<IteratorResult<EngineEvent>>((resolve) => {
-            setTimeout(() => {
-              resolve({ value: undefined as unknown as EngineEvent, done: true });
-            }, minTimeoutMs);
+          const timeoutPromise = new Promise<typeof WATCHDOG_TIMEOUT>((resolve) => {
+            setTimeout(() => resolve(WATCHDOG_TIMEOUT), Math.max(0, minTimeoutMs));
           });
-
-          nextEvent = await Promise.race([eventIterator.next(), timeoutPromise]);
+          raced = await Promise.race([eventIterator.next(), timeoutPromise]);
         }
 
-        if (nextEvent.done) {
-          break; // Iterator exhausted
+        if (raced === WATCHDOG_TIMEOUT) {
+          // Not real stream exhaustion — just a tick to let the top-of-loop checks above
+          // re-evaluate and actually call adapter.cancel() once a threshold is crossed.
+          continue;
         }
 
-        const event = nextEvent.value;
+        if (raced.done) {
+          break; // Iterator genuinely exhausted
+        }
+
+        const event = raced.value;
         lastEventTime = Date.now();
 
         // Accumulate budget on usage_delta events
@@ -291,7 +293,7 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
           workstreamId: job.workstreamId,
           to: "failed",
           actorId: null,
-          result: { outcome: "failed", final_text: null, artifact_refs: [], error: event.error ?? "unknown error" },
+          error: event.error ?? "unknown error",
         });
         return;
       case "cancelled":

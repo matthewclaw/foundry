@@ -5,7 +5,29 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentId, WorkstreamId } from "@foundry/core";
 import { createStore, type Store } from "@foundry/store";
 import { createFakeAdapter, loadScenario } from "@foundry/adapter-fake";
+import type { ExecutionAdapter } from "@foundry/adapter-api";
 import { createRunSupervisor } from "./supervisor.js";
+
+/** Wraps an adapter to count cancel() calls — proves a watchdog actually cancels the
+ * adapter, not just that the run ends up in the right store state (which can happen even
+ * if cancel() is never called, if something else independently folds the terminal state). */
+function spyOnCancel(inner: ExecutionAdapter): { adapter: ExecutionAdapter; cancelCalls: () => number } {
+  let cancelCalls = 0;
+  return {
+    cancelCalls: () => cancelCalls,
+    adapter: {
+      id: inner.id,
+      capabilities: () => inner.capabilities(),
+      start: (spec) => inner.start(spec),
+      resume: inner.resume ? (spec) => inner.resume!(spec) : undefined,
+      events: (handle) => inner.events(handle),
+      cancel: async (handle) => {
+        cancelCalls++;
+        await inner.cancel(handle);
+      },
+    },
+  };
+}
 
 const ZERO_BUDGET = { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 };
 
@@ -184,9 +206,10 @@ describe("watchdogs — E4.3", () => {
     const agentId = bootstrapAgent(store);
     const ws = makeWorkstream(store, agentId, "Hang test");
 
+    const spy = spyOnCancel(createFakeAdapter(loadScenario("hang-stall")));
     const supervisor = createRunSupervisor({
       store,
-      adapters: { fake: createFakeAdapter(loadScenario("hang-stall")) },
+      adapters: { fake: spy.adapter },
       defaultStallMs: 20, // Short timeout for test speed
     });
 
@@ -209,6 +232,9 @@ describe("watchdogs — E4.3", () => {
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(1000); // Should be quick, not hang
     expect(store.runs.get(run.id)?.state).toBe("interrupted");
+    // The stall watchdog must actually tell the adapter to stop, not just let the
+    // supervisor give up on the stream — a real engine process needs to be told to die.
+    expect(spy.cancelCalls()).toBeGreaterThanOrEqual(1);
   });
 
   it("budget cutoff watchdog: budget-burn-cutoff scenario trips at costUsd cap", async () => {
@@ -241,7 +267,9 @@ describe("watchdogs — E4.3", () => {
 
     const finished = store.runs.get(run.id);
     expect(finished?.state).toBe("failed");
-    expect(finished?.result?.error).toBe("budget_exhausted");
+
+    const failedEvent = store.events.after(0).find((e) => e.run_id === run.id && e.type === "run_failed");
+    expect((failedEvent?.payload as { error?: string } | undefined)?.error).toBe("budget_exhausted");
   });
 
   it("wall-clock watchdog: hang-stall scenario with very short wallClockMs terminates in interrupted state", async () => {
@@ -250,9 +278,10 @@ describe("watchdogs — E4.3", () => {
     const agentId = bootstrapAgent(store);
     const ws = makeWorkstream(store, agentId, "Wall-clock test");
 
+    const spy = spyOnCancel(createFakeAdapter(loadScenario("hang-stall")));
     const supervisor = createRunSupervisor({
       store,
-      adapters: { fake: createFakeAdapter(loadScenario("hang-stall")) },
+      adapters: { fake: spy.adapter },
       defaultStallMs: 10000, // Long stall so wall-clock trips first
     });
 
@@ -275,6 +304,7 @@ describe("watchdogs — E4.3", () => {
 
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(1000); // Should be quick
+    expect(spy.cancelCalls()).toBeGreaterThanOrEqual(1);
     expect(store.runs.get(run.id)?.state).toBe("interrupted");
   });
 
