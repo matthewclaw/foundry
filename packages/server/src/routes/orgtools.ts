@@ -43,17 +43,6 @@ function callerParentTask(ctx: RouteContext, cred: RunCredential): Task | null {
   return ws?.task_id ? (ctx.store.tasks.get(ws.task_id) ?? null) : null;
 }
 
-/**
- * Thread anchor for messages sent outside an existing thread: the caller's own
- * workstream when the run is known (the conversation happens where the work is),
- * else keyed on the caller's agent id. Both are "workstream"-kind anchors — the only
- * ThreadAnchorType besides "task", which is reserved for task-progress threads.
- */
-function callerThread(ctx: RouteContext, cred: RunCredential) {
-  const run = ctx.store.runs.get(cred.runId);
-  return ctx.store.commands.getOrCreateThread("workstream", run ? run.workstream_id : (cred.agentId as string));
-}
-
 export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
   list_org: (ctx) => ({
     ok: true,
@@ -86,12 +75,17 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
   delegate_task: (ctx, cred, input) => {
     const { spec_md, acceptance_criteria_md, budget, assignee_agent_id, routing, refs } = input as any;
 
+    // The caller's own in-flight task, if any — this delegation is a sub-delegation
+    // of it (depth + budget conservation, F4). Absent for a root/human delegation.
+    const parent = callerParentTask(ctx, cred);
+    const parentTask = parent ? { id: parent.id, depth: parent.depth, budget: parent.budget } : null;
+
     // Check policy: AC, depth, budget, assignee, routing
     const policyErr = checkDelegation({
       store: ctx.store,
       delegator: cred.actorId,
       input: { acceptance_criteria_md, budget, assignee_agent_id, routing },
-      parentTask: null,
+      parentTask,
     });
     if (policyErr) {
       return { ok: false, error: policyErr };
@@ -112,7 +106,7 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     // Create the task
     try {
       const task = ctx.store.commands.createTask({
-        parent_task_id: null,
+        parent_task_id: parent ? parent.id : null,
         delegator_actor_id: cred.actorId,
         assignee_agent_id: resolvedAssigneeId,
         routing_spec: routing || null,
@@ -268,10 +262,14 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     const { kind, description, payload } = input as any;
 
     try {
+      // approvals.ts's grant handler reads payload.workstream_id to know which run to
+      // re-trigger (E6.4 AC: "grant ⇒ next run scheduled") — same shape the supervisor's
+      // engine-permission_request path already writes.
+      const run = ctx.store.runs.get(cred.runId);
       const approval = ctx.store.commands.requestApproval({
         requested_by_actor: cred.actorId,
         kind,
-        payload: payload || { description },
+        payload: { description, ...(payload as object | undefined), run_id: cred.runId, workstream_id: run?.workstream_id },
       });
       return { ok: true, data: { approval_id: approval.id } };
     } catch (e) {
@@ -280,16 +278,16 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
   },
 
   search_history: (ctx, cred, input) => {
-    const { query, scope: requestedScope } = input as any;
+    const { query, scope: requestedScope } = input as SearchHistoryInput;
 
     try {
       // Resolve caller's policy for search_history_scope
       const agent = ctx.store.agents.get(cred.agentId);
-      const policy = agent ? resolvePolicy(ctx.store, agent) : { search_history_scope: "self" };
+      const policy = agent ? resolvePolicy(ctx.store, agent) : { search_history_scope: "self" as SearchHistoryScope };
       const allowedScope = policy.search_history_scope || "self";
 
       // Clamp requested scope to allowed scope
-      const scope = requestedScope && ["self", "team", "org"].includes(requestedScope) ? requestedScope : "self";
+      const scope: SearchHistoryScope = requestedScope ?? "self";
       if (
         (scope === "team" && allowedScope === "self") ||
         (scope === "org" && (allowedScope === "self" || allowedScope === "team"))
@@ -300,40 +298,20 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
         };
       }
 
-      // ponytail: LIKE scan until E11.5's FTS5 index. Naive SQL search for now.
-      const hits: any[] = [];
-      const pattern = `%${query}%`;
-
-      // Search messages
-      const messages = ctx.store.messages.listOpenForActor(cred.actorId);
-      for (const msg of messages) {
-        if (msg.body_md.includes(query)) {
-          hits.push({
-            ref: { kind: "message", id: msg.id },
-            excerpt: msg.body_md.substring(0, 200),
-            ts: msg.created_at,
-          });
-        }
+      // "self": only the caller's own messages/workstreams/runs. "team": everyone on
+      // the caller's team (a teamless agent has no teammates, so this narrows to just
+      // itself rather than falling through to an unfiltered org-wide search — note
+      // *both* axes need scoping, or an unscoped one silently leaks the other corpus
+      // org-wide). "org": unfiltered (store.search.text's default).
+      let filter: Parameters<typeof ctx.store.search.text>[1];
+      if (scope === "self") {
+        filter = { actor_ids: [cred.actorId], agent_ids: agent ? [agent.id] : [] };
+      } else if (scope === "team") {
+        const teammates = agent?.team_id ? ctx.store.agents.list({ team_id: agent.team_id }) : agent ? [agent] : [];
+        filter = { actor_ids: teammates.map((a) => a.actor_id), agent_ids: teammates.map((a) => a.id) };
       }
 
-      // Search workstreams
-      const workstreams = agent
-        ? ctx.store.workstreams.list({ agent_id: agent.id })
-        : ctx.store.workstreams.list();
-      for (const ws of workstreams) {
-        if (ws.goal_md.includes(query) || ws.title.includes(query)) {
-          hits.push({
-            ref: { kind: "workstream", id: ws.id },
-            excerpt: (ws.title + ": " + ws.goal_md).substring(0, 200),
-            ts: ws.created_at,
-          });
-        }
-      }
-
-      // ponytail: Search runs' result_json would require parsing; skip for v1
-      // until E11 adds a proper search index.
-
-      return { ok: true, data: { hits: hits.slice(0, 20) } };
+      return { ok: true, data: { hits: ctx.store.search.text(query, filter) } };
     } catch (e) {
       return { ok: false, error: { code: "policy_violation", message: String(e) } };
     }

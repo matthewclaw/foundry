@@ -147,3 +147,162 @@ describe("org-tools auth — E6.1", () => {
     expect(JSON.parse(invalid.body)).toMatchObject({ ok: false, error: { code: "policy_violation" } });
   });
 });
+
+/** A minted token whose run is bound to a real task-carrying workstream, for E6.2's sub-delegation and approval-payload wiring. */
+function mintTokenForTaskRun(server: FoundryServer, task: { id: string }, agentId: string) {
+  const agent = server.store.agents.get(agentId as never)!;
+  const ws = server.store.commands.createWorkstream({
+    agent_id: agent.id,
+    title: "sub",
+    goal_md: "g",
+    origin: `task:${task.id}` as never,
+    task_id: task.id as never,
+    budget: { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
+  });
+  const run = server.store.commands.createRun({
+    workstream_id: ws.id,
+    trigger: "human_message",
+    input_context_ref: "runs/{run_id}/context.md",
+    engine_id: "fake",
+  });
+  const token = server.tokens.mint({ runId: run.id, agentId: agent.id, actorId: agent.actor_id });
+  return { token, ws, run, agent };
+}
+
+describe("delegate_task — E6.2/E6.3: sub-delegation depth + parent wiring", () => {
+  it("a delegation from a run executing a task becomes a real child (parent_task_id, depth+1), and the delegator's depth cap applies", async () => {
+    const { agentId } = bootstrapAgent();
+    const human = server.store.commands.getOrCreateHumanActor();
+    const worker = server.store.agents.get(agentId as never)!;
+
+    const parentTask = server.store.commands.createTask({
+      parent_task_id: null,
+      delegator_actor_id: human,
+      assignee_agent_id: worker.id,
+      spec_md: "parent",
+      acceptance_criteria_md: "AC",
+      budget: { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
+    });
+    const { token } = mintTokenForTaskRun(server, parentTask, agentId);
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/delegate_task",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: "child", spec_md: "do it", acceptance_criteria_md: "AC", assignee_agent_id: worker.id },
+    });
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(true);
+    const child = server.store.tasks.get(body.data.task_id);
+    expect(child?.parent_task_id).toBe(parentTask.id);
+    expect(child?.depth).toBe(parentTask.depth + 1);
+  });
+});
+
+describe("request_approval — E6.2/E6.4: payload carries workstream_id so grant re-triggers the run", () => {
+  it("an org-tool-requested approval's payload includes the caller's workstream_id", async () => {
+    const { agentId } = bootstrapAgent();
+    const human = server.store.commands.getOrCreateHumanActor();
+    const worker = server.store.agents.get(agentId as never)!;
+    const task = server.store.commands.createTask({
+      parent_task_id: null,
+      delegator_actor_id: human,
+      assignee_agent_id: worker.id,
+      spec_md: "parent",
+      acceptance_criteria_md: "AC",
+      budget: { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
+    });
+    const { token, ws } = mintTokenForTaskRun(server, task, agentId);
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/request_approval",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { kind: "budget_increase", description: "need more budget" },
+    });
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(true);
+    const approval = server.store.approvals.get(body.data.approval_id);
+    expect((approval?.payload as { workstream_id?: string }).workstream_id).toBe(ws.id);
+  });
+});
+
+describe("search_history — E6.2/E6.3: real store search, scope-clamped, Ref-shaped hits", () => {
+  it("finds a matching message and returns a proper ref string; scope beyond policy is refused", async () => {
+    const { agentId, wsId } = bootstrapAgent();
+    const agent = server.store.agents.get(agentId as never)!;
+    const token = server.tokens.mint({ runId: "run_search" as never, agentId: agent.id, actorId: agent.actor_id });
+    const thread = server.store.commands.getOrCreateThread("workstream", wsId);
+    server.store.commands.sendMessage({
+      thread_id: thread.id,
+      from_actor_id: agent.actor_id,
+      to_actor_id: server.store.commands.getOrCreateHumanActor(),
+      type: "status",
+      body_md: "unobtainium levels are nominal",
+      refs: [],
+      visibility: "normal",
+    });
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/search_history",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { query: "unobtainium" },
+    });
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(true);
+    expect(body.data.hits.length).toBeGreaterThan(0);
+    expect(body.data.hits[0].ref).toMatch(/^message:/);
+
+    // Default policy scope is "self" — asking for "org" exceeds it.
+    const refused = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/search_history",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { query: "unobtainium", scope: "org" },
+    });
+    expect(JSON.parse(refused.body)).toMatchObject({ ok: false, error: { code: "policy_violation" } });
+  });
+
+  it("a teamless agent granted 'team' scope sees only its own history, not the whole org", async () => {
+    // Team-level search via a policy override at creation (default is "self").
+    const { agentId } = server.store.commands.createAgent({
+      name: "Scoped",
+      role: "Backend",
+      team_id: null,
+      engine_id: "fake",
+      engine_config: {},
+      memory_ref: "agents/{agent_id}/memory",
+      charter_body_md: "# Scoped",
+      policy_overrides: { search_history_scope: "team" },
+    });
+    server.store.commands.transitionAgentState({ id: agentId, to: "active", actorId: null });
+    const agent = server.store.agents.get(agentId as never)!;
+    const token = server.tokens.mint({ runId: "run_team_scope" as never, agentId: agent.id, actorId: agent.actor_id });
+
+    // A message from a wholly unrelated agent, elsewhere in the org.
+    const { agentId: otherId } = bootstrapAgent();
+    const other = server.store.agents.get(otherId as never)!;
+    const otherThread = server.store.commands.getOrCreateThread("workstream", "other-anchor");
+    server.store.commands.sendMessage({
+      thread_id: otherThread.id,
+      from_actor_id: other.actor_id,
+      to_actor_id: server.store.commands.getOrCreateHumanActor(),
+      type: "status",
+      body_md: "unobtainium supply chain secured",
+      refs: [],
+      visibility: "normal",
+    });
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/search_history",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { query: "unobtainium", scope: "team" },
+    });
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(true);
+    // A teamless agent's "team" is just itself — the other agent's message must not leak in.
+    expect(body.data.hits.length).toBe(0);
+  });
+});

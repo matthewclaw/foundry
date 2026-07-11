@@ -415,3 +415,40 @@ a `from_actor_id`. The store lazily creates one `kind='human'` actor row (no eve
 same catalogue gap/precedent as threads/teams, #17) and every human-attributed API
 command uses it. Multi-user is a server-mode concern; this is the seam where real
 identity would plug in.
+
+---
+
+# Open Issues — raised during E6 (org-tools + policy engine) implementation
+
+## 33. `createOrgToolsMcpServer` is a documented stub; HTTP + CLI shim are the two live org-tools transports
+
+Contracts.md names an MCP surface for org-tools, but no `@modelcontextprotocol/sdk`
+integration exists yet — `packages/server/src/orgtools/mcp.ts` returns a plain object
+describing the toolset (names/descriptions derived from `ORG_TOOL_INPUT_SCHEMAS`) rather
+than a wired MCP server, and carries no SDK dependency (one was added to
+`packages/server/package.json` during E6.2 build-out but never imported anywhere —
+removed as dead weight; add it back when this lands for real). Every tool is fully
+functional through the HTTP surface (`POST /api/org-tools/:tool`, `routes/orgtools.ts`)
+and the CLI shim (`orgtools/shim.ts`, argv → HTTP → stdout) — an adapter that can shell
+out or make HTTP calls has full org-tools access today. E9.2 is where a real MCP server
+gets built (or this stub gets deleted if the claude-code adapter's `--mcp-config`
+injection works fine against the HTTP surface directly and MCP turns out to add nothing
+here) — flagging so E9.2 doesn't assume more than a documented shape exists yet.
+
+## 34. `update_task` / `deliver_task` don't check the caller is the task's assignee
+
+Contracts.md's org-tool table (`update_task { task_id, note_md?, blocked? }`,
+`deliver_task { task_id, summary_md, artifact_refs[] }`) gives each a bare `task_id`
+with no stated authorization rule, and no doc spells out whether only the assignee may
+progress a task. As shipped, any live run's token can call either on any task in the
+org — the per-run credential attributes the resulting message/transition to the caller
+(`cred.actorId`) correctly, but nothing rejects a caller who isn't `task.assignee_agent_id`'s
+actor. `delegate_task` similarly lets any caller name any `assignee_agent_id` (not just
+their own reports) — that one reads as intentional (a manager delegating to a named
+specialist, not just to direct reports), but the update/deliver gap looks more like an
+oversight than a decision. Cheap fix (one `cred.actorId !== assignee.actor_id` check
+returning `policy_violation`) deferred rather than silently added, since it's a real
+policy decision (does Foundry trust the local single-tenant tool with any live token
+touching any task, matching #32's single-human-actor posture, or does it want per-agent
+task isolation?) — flagging for architect confirmation before E8.1 builds the
+deliver/accept/reject loop on top of these handlers.
