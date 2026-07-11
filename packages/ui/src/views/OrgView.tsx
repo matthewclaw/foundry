@@ -23,7 +23,7 @@ export function statusBadge(status: AgentStatus): { classes: string; rank: numbe
   return STATUS_BADGE[status];
 }
 
-function Badge({ status }: { status: AgentStatus }) {
+export function Badge({ status }: { status: AgentStatus }) {
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${statusBadge(status).classes}`}

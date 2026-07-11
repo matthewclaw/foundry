@@ -16,6 +16,7 @@ import { useEventFeed } from "./api/sse.js";
 import type { OrgViewAgent, OrgViewTeam } from "./api/types.js";
 import OrgView from "./views/OrgView.js";
 import AgentPage from "./views/AgentPage.js";
+import WorkstreamView from "./views/WorkstreamView.js";
 import Inbox from "./views/Inbox.js";
 import "./index.css";
 
@@ -89,6 +90,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<OrgView />} />
             <Route path="/agents/:id" element={<AgentPage />} />
+            <Route path="/workstreams/:id" element={<WorkstreamView />} />
             <Route path="/inbox" element={<Inbox />} />
           </Route>
         </Routes>

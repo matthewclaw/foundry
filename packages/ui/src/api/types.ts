@@ -44,6 +44,52 @@ export interface InboxItem {
   summary: string;
 }
 
+/**
+ * E7.3 — GET /api/agents/:id returns the store's agentPage projection
+ * (packages/store/src/projections/agentPage.ts). Only the fields the UI renders
+ * are typed here; `charter` is absent in JSON when the projection has none.
+ */
+export interface AgentPageDto {
+  agent: {
+    id: AgentId;
+    name: string;
+    role: string;
+    team_id: TeamId | null;
+    state: AgentState;
+    engine: { id: string };
+  };
+  charter?: { version: number; body_md: string };
+  status: AgentStatus;
+  workstreams: { id: string; title: string; state: string }[];
+  openTasks: { id: string; spec_md: string; state: string }[];
+  relationships: { actor_id: string; weight: number; last_interaction_at: string }[];
+}
+
+/**
+ * E7.4 — GET /api/workstreams/:id/timeline
+ * (packages/store/src/projections/workstreamTimeline.ts). transcriptSource is the
+ * ADR-003 capability-degradation tag: "live" (from events), "file" (compacted), "none".
+ */
+export interface TimelineRunEntry {
+  run: {
+    id: string;
+    seq: number;
+    trigger: string;
+    state: string;
+    started_at: string | null;
+    ended_at: string | null;
+    usage: { cost_usd?: number; tokens_in?: number; tokens_out?: number } | null;
+  };
+  events: { seq: number; type: string; payload: unknown }[];
+  transcriptText: string | null;
+  transcriptSource: "live" | "file" | "none";
+}
+
+export interface Timeline {
+  workstreamId: string;
+  runs: TimelineRunEntry[];
+}
+
 /** Event shape on the SSE feed (core EventSchema, minimally). */
 export interface FeedEvent {
   seq: number;
