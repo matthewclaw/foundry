@@ -7,7 +7,7 @@
  */
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { describeAdapterContract, type ConformanceBehavior } from "@foundry/adapter-api";
+import { describeAdapterContract, type ConformanceBehavior } from "@foundry/adapter-api/conformance";
 import { createClaudeCodeAdapter } from "./adapter.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures");
