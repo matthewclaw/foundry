@@ -482,3 +482,103 @@ describe("E8.1 — delegation end-to-end: delegate -> spawn -> deliver -> accept
     expect(escalation!.visibility).toBe("surfaced");
   });
 });
+
+describe("E8.4 — thread round cap + auto-escalation (F5)", () => {
+  it("agent-to-agent messages are capped at thread_round_cap; human-agent messages are never capped", async () => {
+    const { agentId: aId } = bootstrapAgent();
+    const { agentId: bId } = bootstrapAgent();
+    const a = server.store.agents.get(aId as never)!;
+    const b = server.store.agents.get(bId as never)!;
+    const tokenA = server.tokens.mint({ runId: "run_e8_4_a" as never, agentId: a.id, actorId: a.actor_id });
+    const tokenB = server.tokens.mint({ runId: "run_e8_4_b" as never, agentId: b.id, actorId: b.actor_id });
+    const human = server.store.commands.getOrCreateHumanActor();
+
+    // Send 4 agent-to-agent messages (should all succeed with default cap = 4)
+    for (let i = 0; i < 4; i++) {
+      const res = await server.app.inject({
+        method: "POST",
+        url: "/api/org-tools/send_message",
+        headers: { authorization: `Bearer ${tokenA}` },
+        payload: { to_actor_id: b.actor_id, type: "status", body_md: `Message ${i}` },
+      });
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(true, `Message ${i} should succeed`);
+    }
+
+    // The 5th agent-to-agent message should be refused with thread_round_cap
+    const res5 = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/send_message",
+      headers: { authorization: `Bearer ${tokenA}` },
+      payload: { to_actor_id: b.actor_id, type: "status", body_md: "Message 5" },
+    });
+    const body5 = JSON.parse(res5.body);
+    expect(body5.ok).toBe(false);
+    expect(body5.error.code).toBe("thread_round_cap");
+
+    // An escalation message should have been sent to the human
+    const thread = server.store.commands.getOrCreateThread("workstream", b.actor_id);
+    const messages = server.store.messages.listByThread(thread.id);
+    const escalation = messages.find((m) => m.type === "escalation" && m.visibility === "surfaced");
+    expect(escalation).toBeDefined();
+
+    // Sending the same message again should be refused but NOT create another escalation
+    const res6 = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/send_message",
+      headers: { authorization: `Bearer ${tokenA}` },
+      payload: { to_actor_id: b.actor_id, type: "status", body_md: "Message 6" },
+    });
+    const body6 = JSON.parse(res6.body);
+    expect(body6.ok).toBe(false);
+    expect(body6.error.code).toBe("thread_round_cap");
+
+    const messagesAfter = server.store.messages.listByThread(thread.id);
+    const escalationsAfter = messagesAfter.filter((m) => m.type === "escalation" && m.visibility === "surfaced");
+    expect(escalationsAfter.length).toBe(1); // Still just one escalation
+
+    // Human-to-agent messages are never capped (no limit on human conversations)
+    const tokenHuman = server.tokens.mint({ runId: "run_human_e8_4" as never, agentId: a.id, actorId: human });
+    for (let i = 0; i < 10; i++) {
+      const res = await server.app.inject({
+        method: "POST",
+        url: "/api/org-tools/send_message",
+        headers: { authorization: `Bearer ${tokenHuman}` },
+        payload: { to_actor_id: a.actor_id, type: "status", body_md: `Human message ${i}` },
+      });
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(true, `Human message ${i} should never be capped`);
+    }
+  });
+});
+
+describe("E8.5 — routing failure surfaces to inbox (F11)", () => {
+  it("delegate_task with unmatched routing spec both returns error and fires surfaced escalation", async () => {
+    const { agentId: delegatorId } = bootstrapAgent();
+    const delegator = server.store.agents.get(delegatorId as never)!;
+    const token = server.tokens.mint({ runId: "run_e8_5" as never, agentId: delegator.id, actorId: delegator.actor_id });
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/delegate_task",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        title: "Impossible routing",
+        spec_md: "find someone impossible",
+        acceptance_criteria_md: "AC",
+        routing: { role: "NonexistentRole" },
+      },
+    });
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("routing_failed");
+
+    // The delegator's run also got a surfaced escalation message on their workstream thread
+    const thread = server.store.commands.getOrCreateThread("workstream", delegator.id as string);
+    const messages = server.store.messages.listByThread(thread.id);
+    const escalation = messages.find((m) => m.type === "escalation" && m.visibility === "surfaced");
+    expect(escalation).toBeDefined();
+    expect(escalation!.body_md).toContain("Delegation routing failed");
+    expect(escalation!.body_md).toContain("NonexistentRole");
+  });
+});

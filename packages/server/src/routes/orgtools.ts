@@ -104,6 +104,26 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     const parent = callerParentTask(ctx, cred);
     const parentTask = parent ? { id: parent.id, depth: parent.depth, budget: parent.budget } : null;
 
+    // E8.5 — pre-check routing early if present, so we can fire an escalation before returning
+    if (routing && !assignee_agent_id) {
+      const routeResult = resolveRouting(ctx.store, routing);
+      if ("code" in routeResult) {
+        // Routing failure surfaces to human inbox (F11)
+        const human = ctx.store.commands.getOrCreateHumanActor();
+        const thread = ctx.store.commands.getOrCreateThread("workstream", cred.agentId as string);
+        ctx.store.commands.sendMessage({
+          thread_id: thread.id,
+          from_actor_id: cred.actorId as never,
+          to_actor_id: human,
+          type: "escalation",
+          body_md: `Delegation routing failed: no active agent matches (team_id=${routing.team_id ?? "*"}, role=${routing.role ?? "*"}). The delegating run has received this error and may retry. Consider creating a specialist agent or adjusting routing criteria.`,
+          refs: [],
+          visibility: "surfaced",
+        });
+        return { ok: false, error: routeResult };
+      }
+    }
+
     // Check policy: AC, depth, budget, assignee, routing
     const policyErr = checkDelegation({
       store: ctx.store,
@@ -287,6 +307,39 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
         const anchorId = to_actor_id || to_team_id || "general";
         const thread = ctx.store.commands.getOrCreateThread(anchorType, anchorId as string);
         msgThreadId = thread.id;
+      }
+
+      // E8.4 — thread round cap check (F5): agent-to-agent only, not human-agent
+      // Only check when to_actor_id is set (no cap for team sends)
+      if (to_actor_id) {
+        const senderAgent = ctx.store.agents.list().find((a) => a.actor_id === cred.actorId);
+        const recipientAgent = ctx.store.agents.list().find((a) => a.actor_id === to_actor_id);
+
+        // If both are real agents (not human), check the round cap
+        if (senderAgent && recipientAgent) {
+          const thread = ctx.store.messages.getThread(msgThreadId as never);
+          if (thread && thread.round_count >= resolvePolicy(ctx.store, senderAgent).thread_round_cap) {
+            // Thread round cap exceeded. Check if an escalation already exists to avoid duplicates.
+            const existingEscalation = ctx.store.messages
+              .listByThread(thread.id)
+              .some((m) => m.type === "escalation" && m.disposition === "open");
+
+            if (!existingEscalation) {
+              const human = ctx.store.commands.getOrCreateHumanActor();
+              ctx.store.commands.sendMessage({
+                thread_id: thread.id,
+                from_actor_id: cred.actorId as never,
+                to_actor_id: human,
+                type: "escalation",
+                body_md: `Thread between agents has exceeded round cap (${resolvePolicy(ctx.store, senderAgent).thread_round_cap} messages per thread) — pulling in a human to decide next steps.`,
+                refs: [],
+                visibility: "surfaced",
+              });
+            }
+
+            return { ok: false, error: { code: "thread_round_cap", message: `Agent-to-agent thread exceeded round cap of ${resolvePolicy(ctx.store, senderAgent).thread_round_cap}` } };
+          }
+        }
       }
 
       const msg = ctx.store.commands.sendMessage({
