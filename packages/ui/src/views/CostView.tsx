@@ -12,11 +12,24 @@ function formatUsd(value: number): string {
 }
 
 function formatTokens(value: number): string {
-  return value.toLocaleString();
+  // Explicit locale: toLocaleString() with no argument follows the runtime's default
+  // locale, which isn't guaranteed to be a comma-separated one (this environment's
+  // Node build renders "5 000 000", not "5,000,000", with no locale pinned).
+  return value.toLocaleString("en-US");
 }
 
-function StatBlock({ label, spent, limit }: { label: string; spent: number; limit: number | null }) {
-  const limitText = limit === null ? "uncapped" : formatUsd(limit);
+function StatBlock({
+  label,
+  spent,
+  limit,
+  format,
+}: {
+  label: string;
+  spent: number;
+  limit: number | null;
+  format: (value: number) => string;
+}) {
+  const limitText = limit === null ? "uncapped" : format(limit);
   const percentage = limit === null ? 0 : Math.min(100, (spent / limit) * 100);
 
   return (
@@ -24,7 +37,7 @@ function StatBlock({ label, spent, limit }: { label: string; spent: number; limi
       <div className="flex justify-between items-baseline mb-2">
         <h2 className="font-semibold text-gray-800">{label}</h2>
         <span className="text-sm text-gray-600">
-          {label.includes("USD") ? formatUsd(spent) : formatTokens(spent)} / {limitText}
+          {format(spent)} / {limitText}
         </span>
       </div>
       {limit !== null && (
@@ -89,8 +102,8 @@ export default function CostView() {
         Org-wide spend and limits
       </p>
 
-      <StatBlock label="USD Spent" spent={data.spent_usd} limit={data.limit_usd} />
-      <StatBlock label="Tokens Spent" spent={data.spent_tokens} limit={data.limit_tokens} />
+      <StatBlock label="USD Spent" spent={data.spent_usd} limit={data.limit_usd} format={formatUsd} />
+      <StatBlock label="Tokens Spent" spent={data.spent_tokens} limit={data.limit_tokens} format={formatTokens} />
 
       <div className="mt-6">
         <h2 className="font-semibold text-gray-800 mb-4">Breakdown</h2>
