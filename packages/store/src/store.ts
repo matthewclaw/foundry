@@ -19,6 +19,7 @@ import { createRunQueries, type RunQueries } from "./queries/runs.js";
 import { createTaskQueries, type TaskQueries } from "./queries/tasks.js";
 import { createMessageQueries, type MessageQueries } from "./queries/messages.js";
 import { createApprovalQueries, type ApprovalQueries } from "./queries/approvals.js";
+import { createSearchQueries, type SearchQueries } from "./queries/search.js";
 
 import { createEventFeed, type EventFeed } from "./events/feed.js";
 import { createProjections, type Projections } from "./projections/index.js";
@@ -109,6 +110,8 @@ export interface Store {
   tasks: TaskQueries;
   messages: MessageQueries;
   approvals: ApprovalQueries;
+  /** E6.2 search_history: naive LIKE text search (ponytail: FTS5 lands in E11.5). */
+  search: SearchQueries;
   events: EventFeed;
   projections: Projections;
   commands: StoreCommands;
@@ -132,6 +135,7 @@ export function createStore(config: StoreConfig): Store {
     tasks: createTaskQueries(db),
     messages: createMessageQueries(db),
     approvals: createApprovalQueries(db),
+    search: createSearchQueries(db),
     events: createEventFeed(db, bus, mutate, config.dataDir),
     projections: createProjections(db, config.dataDir),
     commands: {
