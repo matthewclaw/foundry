@@ -1,5 +1,5 @@
 /** E7.1/E7.3/E7.4 — Typed fetch helpers for the API (contracts.md). Throw on !ok. */
-import type { OrgView, InboxItem, AgentPageDto, Timeline } from "./types.js";
+import type { OrgView, InboxItem, AgentPageDto, Timeline, CostReport } from "./types.js";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, init);
@@ -20,8 +20,13 @@ export const apiClient = {
   getAgent: (id: string) => request<AgentPageDto>(`/agents/${id}`),
   getInbox: () => request<InboxItem[]>("/inbox"),
   getTimeline: (workstreamId: string) => request<Timeline>(`/workstreams/${workstreamId}/timeline`),
+  getCost: (scope?: string) => request<CostReport>(`/cost${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`),
   patchAgent: (id: string, body: { charter_md: string }) =>
     request<unknown>(`/agents/${id}`, json("PATCH", body)),
   postWorkstreamMessage: (workstreamId: string, body: { kind: "redirect"; body_md: string }) =>
     request<{ message_id: string; run_id: string }>(`/workstreams/${workstreamId}/messages`, json("POST", body)),
+  grantApproval: (id: string, note_md?: string) =>
+    request<unknown>(`/approvals/${id}/grant`, json("POST", { note_md })),
+  denyApproval: (id: string, reason?: string) =>
+    request<unknown>(`/approvals/${id}/deny`, json("POST", { reason })),
 };

@@ -18,6 +18,7 @@ import OrgView from "./views/OrgView.js";
 import AgentPage from "./views/AgentPage.js";
 import WorkstreamView from "./views/WorkstreamView.js";
 import Inbox from "./views/Inbox.js";
+import CostView from "./views/CostView.js";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -50,10 +51,15 @@ function LeftRail() {
         </NavLink>
       </div>
       <div className="flex-1 overflow-auto p-3 space-y-5">
-        <NavLink to="/inbox" className={railLink}>
-          Inbox
-        </NavLink>
-        {org?.teams.map((team: OrgViewTeam) => (
+        <div className="space-y-0.5">
+          <NavLink to="/inbox" className={railLink}>
+            Inbox
+          </NavLink>
+          <NavLink to="/cost" className={railLink}>
+            Cost
+          </NavLink>
+        </div>
+        {org?.teams && org.teams.map((team: OrgViewTeam) => (
           <div key={team.id}>
             <h2 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase">{team.name}</h2>
             <AgentLinks agents={team.agents} />
@@ -92,6 +98,7 @@ export default function App() {
             <Route path="/agents/:id" element={<AgentPage />} />
             <Route path="/workstreams/:id" element={<WorkstreamView />} />
             <Route path="/inbox" element={<Inbox />} />
+            <Route path="/cost" element={<CostView />} />
           </Route>
         </Routes>
       </BrowserRouter>

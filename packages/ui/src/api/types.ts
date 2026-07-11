@@ -99,3 +99,25 @@ export interface FeedEvent {
   entity_id: string;
   payload: unknown;
 }
+
+/** E10.3 — Cost report for an org/team/agent/workstream scope. */
+export type CostScope =
+  | { level: "org" }
+  | { level: "team"; team_id: string }
+  | { level: "agent"; agent_id: string }
+  | { level: "workstream"; workstream_id: string };
+
+export interface CostBreakdownEntry {
+  label: string;
+  spent_usd: number;
+  spent_tokens: number;
+}
+
+export interface CostReport {
+  scope: CostScope;
+  spent_usd: number;
+  spent_tokens: number;
+  limit_usd: number | null;
+  limit_tokens: number | null;
+  breakdown: CostBreakdownEntry[];
+}
