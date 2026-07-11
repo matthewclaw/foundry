@@ -49,6 +49,7 @@ export function createServer(config: ServerConfig): FoundryServer {
   mkdirSync(config.dataDir, { recursive: true });
   const store = createStore({ dataDir: config.dataDir, dbPath: config.dbPath });
   const tokens = createTokenRegistry();
+  const runSettled = new Map<string, Array<() => void>>();
   // Known once listen() returns; runs enqueued before that mint URL-less credentials
   // (fine — nothing can call the API before it listens either).
   let baseUrl = "";
@@ -74,8 +75,22 @@ export function createServer(config: ServerConfig): FoundryServer {
       };
     },
     revokeRunCredential: (run) => tokens.revokeRun(run.id),
-    // E11.1: git-version the agent's memory after every run that touched it.
-    afterRun: ({ run, agent }) => commitAgentMemory(config.dataDir, agent.memory_ref, `run ${run.id}`),
+    afterRun: ({ run, agent }) => {
+      // E11.1: git-version the agent's memory after every run that touched it.
+      commitAgentMemory(config.dataDir, agent.memory_ref, `run ${run.id}`);
+      // E11.3 etc.: one-shot per-run settle callbacks (e.g. close-after-distillation).
+      const callbacks = runSettled.get(run.id);
+      if (callbacks) {
+        runSettled.delete(run.id);
+        for (const cb of callbacks) {
+          try {
+            cb();
+          } catch {
+            // settle callbacks are best-effort by contract
+          }
+        }
+      }
+    },
   });
 
   const app = Fastify({ logger: false });
@@ -83,7 +98,16 @@ export function createServer(config: ServerConfig): FoundryServer {
 
   app.get("/api/health", async () => ({ ok: true }));
 
-  const ctx: RouteContext = { store, runtime, tokens };
+  const ctx: RouteContext = {
+    store,
+    runtime,
+    tokens,
+    onRunSettled: (runId, cb) => {
+      const list = runSettled.get(runId) ?? [];
+      list.push(cb);
+      runSettled.set(runId, list);
+    },
+  };
   registerAgentRoutes(app, ctx);
   registerWorkstreamRoutes(app, ctx);
   registerQueryRoutes(app, ctx);
@@ -129,4 +153,6 @@ export interface RouteContext {
   runtime: Runtime;
   /** E6.1: per-run org-tools credentials (mint on run start, dead at run end). */
   tokens: TokenRegistry;
+  /** One-shot callback when a run's execute settles (E11.3 close-after-distillation). */
+  onRunSettled(runId: string, cb: () => void): void;
 }

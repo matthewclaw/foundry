@@ -137,6 +137,38 @@ export function registerWorkstreamRoutes(app: FastifyInstance, ctx: RouteContext
 
       const human = ctx.store.commands.getOrCreateHumanActor();
 
+      // E11.3: distillation pass — one final run whose trigger tells the agent to distil
+      // durable lessons into memory (capture at the moment of maximum context, doc-05);
+      // the workstream closes when that run settles (ctx.onRunSettled hook).
+      if (body.distill && ctx.store.runs.list({ workstream_id: workstreamId }).length > 0) {
+        const agent = ctx.store.agents.get(workstream.agent_id);
+        if (agent) {
+          const thread = ctx.store.commands.getOrCreateThread("workstream", workstreamId);
+          ctx.store.commands.sendMessage({
+            thread_id: thread.id,
+            from_actor_id: human,
+            to_actor_id: agent.actor_id,
+            type: "redirect",
+            body_md:
+              "Close-out: this workstream is being closed. Distil durable lessons from it into your memory (facts, decisions) and skills (procedures that worked) now — update INDEX.md — then finish.",
+          });
+          try {
+            const run = ctx.runtime.enqueue({ workstreamId, trigger: "human_message" });
+            ctx.onRunSettled(run.id, () => {
+              try {
+                ctx.store.commands.transitionWorkstreamState({ id: workstreamId, to: "closed", actorId: human, reason: body.reason });
+                ctx.runtime.releaseWorkspace(workstreamId);
+              } catch {
+                // already closed or not closable — the human can close explicitly
+              }
+            });
+            return reply.status(202).send({ closing: true, distillation_run_id: run.id });
+          } catch (err) {
+            throw new ProblemError(409, "Cannot schedule distillation run", err instanceof Error ? err.message : String(err));
+          }
+        }
+      }
+
       try {
         ctx.store.commands.transitionWorkstreamState({
           id: workstreamId,
