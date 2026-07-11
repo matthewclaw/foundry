@@ -122,7 +122,7 @@ describe("org-tools auth — E6.1", () => {
     }
   });
 
-  it("get_task / get_thread read tools work; unknown tool 404; unimplemented tool 501", async () => {
+  it("get_task / get_thread read tools work; unknown tool 404; invalid input is a tool-level error", async () => {
     const { agentId } = bootstrapAgent();
     const agent = server.store.agents.get(agentId as never)!;
     const token = server.tokens.mint({ runId: "run_z" as never, agentId: agent.id, actorId: agent.actor_id });
@@ -140,7 +140,10 @@ describe("org-tools auth — E6.1", () => {
     const unknown = await server.app.inject({ method: "POST", url: "/api/org-tools/frobnicate", headers: auth, payload: {} });
     expect(unknown.statusCode).toBe(404);
 
-    const pending = await server.app.inject({ method: "POST", url: "/api/org-tools/delegate_task", headers: auth, payload: {} });
-    expect(pending.statusCode).toBe(501);
+    // E6.2: every catalogued tool now has a handler — malformed input is a 200
+    // tool-level error (agent-visible), not an HTTP status.
+    const invalid = await server.app.inject({ method: "POST", url: "/api/org-tools/delegate_task", headers: auth, payload: {} });
+    expect(invalid.statusCode).toBe(200);
+    expect(JSON.parse(invalid.body)).toMatchObject({ ok: false, error: { code: "policy_violation" } });
   });
 });

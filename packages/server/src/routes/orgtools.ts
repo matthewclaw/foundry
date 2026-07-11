@@ -22,6 +22,7 @@ import {
   type SearchHistoryScope,
   type SendMessageInput,
   type Task,
+  type ThreadAnchorType,
   type ToolResult,
   type UpdateTaskInput,
 } from "@foundry/core";
@@ -284,7 +285,7 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     try {
       // Resolve caller's policy for search_history_scope
       const agent = ctx.store.agents.get(cred.agentId);
-      const policy = agent ? resolvePolicy(ctx.store, cred.agentId) : { search_history_scope: "self" };
+      const policy = agent ? resolvePolicy(ctx.store, agent) : { search_history_scope: "self" };
       const allowedScope = policy.search_history_scope || "self";
 
       // Clamp requested scope to allowed scope
