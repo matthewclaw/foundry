@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { newRunId } from "@foundry/core";
 import type { EngineEvent, RunSpec } from "@foundry/adapter-api";
-import { assertWellFormedStream } from "@foundry/adapter-api";
+import { assertWellFormedStream } from "@foundry/adapter-api/conformance";
 import { FakeExecutionAdapter } from "./adapter.js";
 import { listScenarioNames, loadScenario } from "./scenarios-registry.js";
 
