@@ -68,6 +68,11 @@ function memorySection(dataDir: string, agent: Agent): string {
     "## Memory index",
     "",
     index ?? "(no memory index yet — create INDEX.md as you learn things worth keeping)",
+    "",
+    "> Curation: when you learn something durable (a fact, a decision, a procedure that",
+    "> worked), write it to your memory/skills directory and keep INDEX.md current — one",
+    "> line per file. Fix or delete notes you discover to be wrong. Your memory is",
+    "> git-versioned after every run; edit freely.",
   ].join("\n");
 }
 
@@ -118,9 +123,18 @@ function triggerSection(store: Store, run: Run, workstream: Workstream, agent: A
       );
       break;
     }
-    case "approval_granted":
-      lines.push("An approval you were waiting on has been decided. Check the pending items below and continue the work.");
+    case "approval_granted": {
+      lines.push("An approval you were waiting on has been decided. Continue the work accordingly.");
+      const decided = store.approvals.listDecidedFor(agent.actor_id, 3);
+      if (decided.length > 0) {
+        lines.push("", "Recent decisions:");
+        for (const a of decided) {
+          const desc = (a.payload as { description?: string } | undefined)?.description ?? a.kind;
+          lines.push(`- ${a.state.toUpperCase()}: ${desc} (approval:${a.id})`);
+        }
+      }
       break;
+    }
     case "resume":
       lines.push("You are resuming previous work on this workstream after an interruption. Pick up where the prior runs left off.");
       break;

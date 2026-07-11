@@ -55,7 +55,15 @@ export const PostWorkstreamMessageRequestSchema = z.object({
 });
 export type PostWorkstreamMessageRequest = z.infer<typeof PostWorkstreamMessageRequestSchema>;
 
-export const CloseWorkstreamRequestSchema = z.object({ reason: z.string().optional() });
+export const CloseWorkstreamRequestSchema = z.object({
+  reason: z.string().optional(),
+  /**
+   * E11.3: run a final distillation pass before closing — the agent gets one run whose
+   * trigger instructs it to distil durable lessons/skills into memory; the workstream
+   * closes when that run settles.
+   */
+  distill: z.boolean().optional(),
+});
 export type CloseWorkstreamRequest = z.infer<typeof CloseWorkstreamRequestSchema>;
 
 // --- POST /api/tasks (human delegation — same schema as the delegate_task org-tool) ---

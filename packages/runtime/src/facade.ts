@@ -44,6 +44,8 @@ export interface RuntimeOptions {
    */
   mintRunCredential?(args: { run: Run; agent: Agent }): { mcpConfig?: object; cliEnv?: Record<string, string> };
   revokeRunCredential?(run: Run): void;
+  /** Post-run hook (E11.1: memory auto-commit). Called after the run settles, best-effort. */
+  afterRun?(args: { run: Run; workstream: Workstream; agent: Agent }): void;
   limits?: RunQueueLimits;
   defaultWallClockMs?: number;
   defaultStallMs?: number;
@@ -122,6 +124,11 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         });
       } finally {
         opts.revokeRunCredential?.(run);
+        try {
+          opts.afterRun?.({ run, workstream, agent });
+        } catch {
+          // post-run hooks are best-effort by contract
+        }
       }
     } catch (err) {
       // The queue fires execute() and forgets it — a throw here would otherwise be an
