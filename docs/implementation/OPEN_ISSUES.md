@@ -509,3 +509,43 @@ cancellation (single-task and, per E8.6's AC, the full subtree cascade + run-sto
 notify) are deliberately left for whoever picks up E8.6 — building a non-cascading
 cancel now would either need redoing for the cascade or ship a half-behavior that looks
 more done than it is.
+
+---
+
+# Open Issues — raised while scoping E9.4 (permission hooks → Foundry approvals)
+
+## 38. E9.4 is only half-buildable without a real captured fixture; `mintRunCredential` deliberately never sets `mcpConfig`
+
+Two separate gaps, resolved differently:
+
+- **`mcpConfig` decision (confidently resolved, no blocker):** `createServer`'s
+  `mintRunCredential` (`packages/server/src/server.ts`) only ever returns `cliEnv`
+  (`FOUNDRY_ORG_TOOLS_URL`/`_TOKEN`, the CLI shim's transport) — it never sets
+  `mcpConfig`, even though `RunSpec.orgTools.mcpConfig` exists and the claude-code
+  adapter (E9.2, on `phase-2/claude-code`) already injects it via `--mcp-config` when
+  present. This is intentional, not an oversight: #33 already established that
+  `createOrgToolsMcpServer` is a documented stub with no real
+  `@modelcontextprotocol/sdk` wiring behind it — generating an `mcpConfig` that points
+  at a non-functional endpoint would be actively worse than not generating one. The CLI
+  shim is the one live, fully-functional org-tools transport today; every engine reaches
+  org-tools through it regardless of declared `mcp` capability. Revisit once E9.2's real
+  MCP server exists.
+- **Permission-hook wiring (genuinely blocked, not resolved):** the runtime side already
+  works — `packages/runtime/src/supervisor/supervisor.ts` maps a `permission_request`
+  `EngineEvent` to a Foundry approval + `workstream_waiting` (E6.4), proven against the
+  **fake** adapter's synthetic scenarios. `packages/adapter-claude-code` declares
+  `permission_hooks: false` (`src/adapter.ts`) and its stream-json mapper
+  (`src/stream.ts`) has no case for a permission-prompt message at all — building that
+  mapping requires knowing the *real* `claude` CLI's wire shape for a permission
+  request/response (which message `type`/`subtype`, what the control-response reply on
+  stdin looks like), which is exactly the kind of detail this project's own fixtures are
+  meant to be *recordings* of real CLI output, not invented data (see #13's "a
+  fixture-backed adapter... would map each behavior to a specific recorded fixture").
+  No such recording exists in this repo, and no live `claude` CLI is available in this
+  environment to capture one. Fabricating a plausible-looking fixture here would risk
+  exactly the failure mode this session's review discipline exists to catch: code that
+  passes conformance against a self-authored fixture but silently doesn't match the real
+  engine. **Left undone rather than guessed** — capability stays `false` until someone
+  with a live `claude` CLI (E9.5's manual lane is the natural place) records one real
+  permission-prompt transcript to build `stream.ts`'s mapping and a genuine fixture
+  against.
