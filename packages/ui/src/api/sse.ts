@@ -25,12 +25,14 @@ export interface FeedConnection {
 export function connectFeed(options: FeedOptions): FeedConnection {
   let lastSeq = options.after ?? 0;
   let aborted = false;
+  let controller: AbortController | null = null;
   const delay = options.reconnectDelayMs ?? 1000;
 
   async function loop(): Promise<void> {
     while (!aborted) {
       try {
-        const res = await fetch(`/api/events?after=${lastSeq}`);
+        controller = new AbortController();
+        const res = await fetch(`/api/events?after=${lastSeq}`, { signal: controller.signal });
         if (!res.ok) throw new Error(`feed connect failed: ${res.status} ${res.statusText}`);
         if (!res.body) throw new Error("feed response has no body");
 
@@ -68,6 +70,9 @@ export function connectFeed(options: FeedOptions): FeedConnection {
   return {
     disconnect() {
       aborted = true;
+      // Tear the socket down now — without this the read loop only notices on the
+      // next frame (up to a full heartbeat interval away).
+      controller?.abort();
     },
   };
 }
