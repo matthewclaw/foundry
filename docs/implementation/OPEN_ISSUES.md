@@ -452,3 +452,60 @@ policy decision (does Foundry trust the local single-tenant tool with any live t
 touching any task, matching #32's single-human-actor posture, or does it want per-agent
 task isolation?) — flagging for architect confirmation before E8.1 builds the
 deliver/accept/reject loop on top of these handlers.
+
+---
+
+# Open Issues — raised during E8 (delegation + communication) implementation
+
+## 35. `accept_task` / `reject_task` added as new org-tools — not in contracts.md's original toolset
+
+Doc-04's delegation flow is explicit that acceptance is *delegated*: "the human reviews
+one deliverable at the root; agents review their own subordinates" — but contracts.md's
+"Org-tools contract" table (the frozen agent-facing toolset) only ever listed
+`delegate_task`/`update_task`/`deliver_task`/`send_message`/`escalate`/
+`request_approval`/`search_history`/`get_task`/`get_thread`/`list_org`. There was no
+tool-facing way for an *agent* delegator to accept or reject a subordinate's delivered
+work — only the human-facing `POST /api/tasks/:id/{accept,reject}` HTTP route (whose
+DTOs already existed in `packages/core/src/api/dto.ts`, unimplemented until E8.1) could
+decide anything, which only covers the human-as-delegator case.
+
+**Resolution**: added `accept_task { task_id }` and `reject_task { task_id, reason }`
+to `ORG_TOOL_INPUT_SCHEMAS` (`packages/core/src/org-tools/schemas.ts`), additive per the
+precedent set by every other post-E1-freeze amendment in this file (#12, #15, #28, #29–32).
+Both org-tool handlers and the HTTP route call the same
+`packages/server/src/tasks/decide.ts` logic (`acceptTask`/`rejectTask`) so the two
+surfaces can't drift. Please confirm this reading — the alternative is that agent
+delegators were never meant to decide autonomously at all (every sub-delegation's
+acceptance bubbles up to a human somehow), which doc-04's own prose reads against.
+
+## 36. Delegator-workstream resolution for the delivery re-trigger is a heuristic, not a stored reference
+
+Doc-04: after `deliver_task`, "the delegator's next run gets the deliverable + AC in
+context" — requiring the control plane to find *which* workstream to re-trigger. For a
+sub-delegation (`task.parent_task_id` set) this is exact: the workstream whose
+`task_id` equals the parent task's id. For a delegation from an agent's own top-level,
+non-task-linked workstream (a human-triggered root workstream that itself calls
+`delegate_task`), no field records which workstream the delegator was in when it
+delegated — `Task` has no `delegator_workstream_id`. `resolveDelegatorWorkstream`
+(`packages/server/src/routes/orgtools.ts`) falls back to that agent's newest
+non-closed/non-archived workstream, which is correct for every scenario this system
+currently drives an agent through (one active root workstream at a time) but would
+pick the wrong one if an agent ever runs two concurrent root workstreams and delegates
+from one while the other is also open. A `Task.delegator_workstream_id` column (or
+resolving it once at `delegate_task` time and storing it on the child workstream/task)
+would make this exact instead of heuristic — flagging as a follow-up if concurrent
+root workstreams per agent becomes a real scenario, not urgent today.
+
+## 37. `/api/tasks` (`POST`, create) and `/api/tasks/:id/cancel` remain unimplemented
+
+`CreateTaskRequestSchema` and `CancelTaskRequestSchema` DTOs exist in
+`packages/core/src/api/dto.ts`, and contracts.md's query list includes
+`/api/tasks/:id/tree`, but E8.1 only wired the accept/reject half of the human-facing
+task surface (`packages/server/src/routes/tasks.ts`) — the AC for E8.1 is delegate ->
+spawn -> deliver -> accept/reject -> cap -> escalate, which doesn't require a human-
+initiated root delegation route or cancellation. `POST /api/tasks` (a human delegating a
+root task directly, rather than only via an agent's `delegate_task` org-tool call) and
+cancellation (single-task and, per E8.6's AC, the full subtree cascade + run-stop +
+notify) are deliberately left for whoever picks up E8.6 — building a non-cascading
+cancel now would either need redoing for the cascade or ship a half-behavior that looks
+more done than it is.

@@ -129,12 +129,14 @@ describe("list_org", () => {
 });
 
 describe("ORG_TOOL_INPUT_SCHEMAS registry", () => {
-  it("has exactly the contracts.md toolset", () => {
+  it("has exactly the contracts.md toolset plus E8.1's accept_task/reject_task (OPEN_ISSUES #35)", () => {
     expect(new Set(Object.keys(ORG_TOOL_INPUT_SCHEMAS))).toEqual(
       new Set([
         "delegate_task",
         "update_task",
         "deliver_task",
+        "accept_task",
+        "reject_task",
         "send_message",
         "escalate",
         "request_approval",

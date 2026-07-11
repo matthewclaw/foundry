@@ -1,11 +1,11 @@
 /** E2.3 — Workstream reads. Read-only (mutate() is the only write path). */
-import type { AgentId, Workstream, WorkstreamId, WorkstreamState } from "@foundry/core";
+import type { AgentId, TaskId, Workstream, WorkstreamId, WorkstreamState } from "@foundry/core";
 import type { Db } from "../db/connection.js";
 import { rowToWorkstream, type WorkstreamRow } from "../mutations/workstreams.js";
 
 export interface WorkstreamQueries {
   get(id: WorkstreamId): Workstream | undefined;
-  list(filter?: { agent_id?: AgentId; state?: WorkstreamState }): Workstream[];
+  list(filter?: { agent_id?: AgentId; state?: WorkstreamState; task_id?: TaskId }): Workstream[];
 }
 
 export function createWorkstreamQueries(db: Db): WorkstreamQueries {
@@ -24,6 +24,10 @@ export function createWorkstreamQueries(db: Db): WorkstreamQueries {
       if (filter?.state) {
         clauses.push("state = @state");
         params.state = filter.state;
+      }
+      if (filter?.task_id) {
+        clauses.push("task_id = @task_id");
+        params.task_id = filter.task_id;
       }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const rows = db

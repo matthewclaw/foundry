@@ -30,6 +30,7 @@ import type { RouteContext } from "../server.js";
 import { ProblemError } from "../problem.js";
 import type { RunCredential } from "../orgtools/tokens.js";
 import { checkDelegation, resolvePolicy, resolveRouting } from "../policy/policy.js";
+import { acceptTask, rejectTask } from "../tasks/decide.js";
 
 export type ToolHandler = (ctx: RouteContext, cred: RunCredential, input: unknown) => ToolResult<unknown> | Promise<ToolResult<unknown>>;
 
@@ -41,6 +42,29 @@ function callerParentTask(ctx: RouteContext, cred: RunCredential): Task | null {
   const run = ctx.store.runs.get(cred.runId);
   const ws = run ? ctx.store.workstreams.get(run.workstream_id) : undefined;
   return ws?.task_id ? (ctx.store.tasks.get(ws.task_id) ?? null) : null;
+}
+
+/**
+ * The delegating agent's own workstream to re-trigger on delivery, if any. Two cases:
+ * a sub-delegation (the delegator was itself mid-task) has it pinned via
+ * `workstreams.task_id = task.parent_task_id`; a delegation from an agent's top-level,
+ * non-task workstream (human-triggered root work that itself calls delegate_task) has
+ * no such pin, so this falls back to that agent's newest non-terminal workstream — a
+ * heuristic (an agent could in principle have several concurrent root workstreams) but
+ * matches every scenario this system actually drives an agent through today. Returns
+ * `null` when the delegator is the human (nothing to re-trigger; the completion
+ * message is surfaced to the inbox instead) or has nothing open to resume.
+ */
+function resolveDelegatorWorkstream(ctx: RouteContext, task: Task) {
+  if (task.parent_task_id) {
+    return ctx.store.workstreams.list({ task_id: task.parent_task_id })[0];
+  }
+  const delegatorAgent = ctx.store.agents.list().find((a) => a.actor_id === task.delegator_actor_id);
+  if (!delegatorAgent) return undefined; // delegator is the human
+  const open = ctx.store.workstreams
+    .list({ agent_id: delegatorAgent.id })
+    .filter((ws) => ws.state !== "closed" && ws.state !== "archived");
+  return open[open.length - 1];
 }
 
 export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
@@ -100,10 +124,15 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
       if ("code" in routeResult) {
         return { ok: false, error: routeResult };
       }
-      resolvedAssigneeId = routeResult;
+      // resolveRouting returns the resolved Agent, not just its id — createTask wants
+      // the id (this was previously passing the whole object through, which would
+      // fail to bind as a SQLite parameter).
+      resolvedAssigneeId = routeResult.id;
     }
 
-    // Create the task
+    // Create the task, spawn the assignee's workstream, and trigger their first run
+    // (doc-04 delegation flow: create Task(pending) -> create Workstream(origin=task)
+    // -> schedule run(trigger=task_assigned) -> Task: in_progress).
     try {
       const task = ctx.store.commands.createTask({
         parent_task_id: parent ? parent.id : null,
@@ -114,6 +143,22 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
         acceptance_criteria_md,
         budget: budget || { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
       });
+      const ws = ctx.store.commands.createWorkstream({
+        agent_id: resolvedAssigneeId,
+        title: (spec_md as string).slice(0, 80),
+        goal_md: acceptance_criteria_md,
+        origin: `task:${task.id}` as never,
+        task_id: task.id as never,
+        budget: task.budget,
+      });
+      try {
+        ctx.runtime.enqueue({ workstreamId: ws.id, trigger: "task_assigned" });
+        ctx.store.commands.transitionTaskState({ id: task.id, to: "in_progress", actorId: cred.actorId });
+      } catch (enqueueErr) {
+        // Task+workstream exist but nothing runs yet (e.g. assignee suspended between
+        // policy check and now) — leave the task pending; not fatal to the delegation.
+        void enqueueErr;
+      }
       return { ok: true, data: { task_id: task.id } };
     } catch (e) {
       return { ok: false, error: { code: "policy_violation", message: String(e) } };
@@ -173,7 +218,13 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     }
 
     try {
-      // Send completion message on the task thread
+      // Resolved once so the message's visibility and the re-trigger decision agree:
+      // an agent delegator gets re-triggered (message stays "normal", it'll be in their
+      // next composed context); a human delegator (or an agent with nothing open to
+      // resume) gets it "surfaced" into the inbox instead (doc-04: "roots delegated by
+      // the human are accepted by the human").
+      const delegatorWs = resolveDelegatorWorkstream(ctx, task);
+
       const thread = ctx.store.commands.getOrCreateThread("task", task_id as string);
       const msg = ctx.store.commands.sendMessage({
         thread_id: thread.id,
@@ -182,7 +233,7 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
         type: "completion",
         body_md: summary_md,
         refs: artifact_refs || [],
-        visibility: "normal",
+        visibility: delegatorWs ? "normal" : "surfaced",
       });
 
       // Transition task to delivered with the completion message ref
@@ -193,6 +244,12 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
           actorId: cred.actorId,
           deliverableRef: { message_id: msg.id, artifact_refs: artifact_refs || [] },
         });
+        // Re-trigger the delegator's workstream so the deliverable + AC reach its next
+        // composed context (doc-04 delegation flow) — it can then call
+        // accept_task/reject_task.
+        if (delegatorWs) {
+          ctx.runtime.enqueue({ workstreamId: delegatorWs.id, trigger: "agent_message" });
+        }
       } else {
         return {
           ok: false,
@@ -204,6 +261,18 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     } catch (e) {
       return { ok: false, error: { code: "policy_violation", message: String(e) } };
     }
+  },
+
+  accept_task: (ctx, cred, input) => {
+    const { task_id } = input as any;
+    const err = acceptTask({ store: ctx.store, runtime: ctx.runtime, taskId: task_id, decidedBy: cred.actorId });
+    return err ? { ok: false, error: err } : { ok: true, data: { ok: true } };
+  },
+
+  reject_task: (ctx, cred, input) => {
+    const { task_id, reason } = input as any;
+    const result = rejectTask({ store: ctx.store, runtime: ctx.runtime, taskId: task_id, decidedBy: cred.actorId, reason });
+    return "code" in result ? { ok: false, error: result } : { ok: true, data: { ok: true, escalated: result.escalated } };
   },
 
   send_message: (ctx, cred, input) => {

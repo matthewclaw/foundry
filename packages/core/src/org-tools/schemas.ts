@@ -64,6 +64,26 @@ export type DeliverTaskInput = z.infer<typeof DeliverTaskInputSchema>;
 export const DeliverTaskOutputSchema = z.object({ ok: z.literal(true) });
 export const DeliverTaskResultSchema = toolResultSchema(DeliverTaskOutputSchema);
 
+// --- accept_task / reject_task (E8.1) ---
+// contracts.md's org-tools contract table predates these two; doc-04 is explicit that
+// "agents review their own subordinates" (delegated acceptance, not just the human at
+// the root), so a delegating *agent* needs a tool-facing way to decide, not just the
+// human-facing `/api/tasks/:id/{accept,reject}` HTTP route. Additive amendment,
+// OPEN_ISSUES #35 — same posture as every other post-freeze addition in this file.
+
+export const AcceptTaskInputSchema = z.object({ task_id: TaskIdSchema });
+export type AcceptTaskInput = z.infer<typeof AcceptTaskInputSchema>;
+
+export const AcceptTaskOutputSchema = z.object({ ok: z.literal(true) });
+export const AcceptTaskResultSchema = toolResultSchema(AcceptTaskOutputSchema);
+
+export const RejectTaskInputSchema = z.object({ task_id: TaskIdSchema, reason: z.string().min(1) });
+export type RejectTaskInput = z.infer<typeof RejectTaskInputSchema>;
+
+/** `escalated: true` when the F12 rejection cap was hit this call (task stays `rejected`, no auto-resume). */
+export const RejectTaskOutputSchema = z.object({ ok: z.literal(true), escalated: z.boolean() });
+export const RejectTaskResultSchema = toolResultSchema(RejectTaskOutputSchema);
+
 // --- send_message ---
 // Closed set minus escalation/completion, which have their own dedicated tools below (04/contracts.md).
 
@@ -174,6 +194,8 @@ export const ORG_TOOL_INPUT_SCHEMAS = {
   delegate_task: DelegateTaskInputSchema,
   update_task: UpdateTaskInputSchema,
   deliver_task: DeliverTaskInputSchema,
+  accept_task: AcceptTaskInputSchema,
+  reject_task: RejectTaskInputSchema,
   send_message: SendMessageInputSchema,
   escalate: EscalateInputSchema,
   request_approval: RequestApprovalInputSchema,
