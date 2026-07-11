@@ -96,6 +96,30 @@ describe("ClaudeCodeAdapter — E9.1", () => {
     expect(() => process.kill(handle.pid!, 0)).toThrow();
   });
 
+  it("E9.2: spec.orgTools.mcpConfig is injected via --mcp-config", async () => {
+    const adapter = createClaudeCodeAdapter();
+    dir = mkdtempSync(join(tmpdir(), "foundry-cc-"));
+    const mcpConfig = { mcpServers: { foundry: { type: "http", url: "http://127.0.0.1:4180/api/mcp" } } };
+    const handle = await adapter.start({
+      runId: newRunId(),
+      agentName: "Orbit",
+      contextFile: join(dir, "missing.md"),
+      workspaceDir: dir,
+      orgTools: { mcpConfig },
+      engineConfig: { cliPath: process.execPath, cliArgs: [join(fixturesDir, "echo-args.mjs")] },
+      limits: { wallClockMs: 30_000 },
+    });
+    const events: EngineEvent[] = [];
+    for await (const e of adapter.events(handle)) events.push(e);
+    await waitForExit(handle.pid);
+    const ended = events.at(-1);
+    expect(ended?.t).toBe("run_ended");
+    if (ended?.t === "run_ended") {
+      expect(ended.finalText).toContain("--mcp-config");
+      expect(ended.finalText).toContain(JSON.stringify(mcpConfig));
+    }
+  });
+
   it("resume() passes --resume <sessionRef> to the CLI", async () => {
     // echo-args.mjs prints the argv it received as the result text — proving the exact
     // flag wiring without a real CLI.

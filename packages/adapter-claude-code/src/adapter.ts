@@ -123,7 +123,9 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
       ...(config.permissionMode ? ["--permission-mode", config.permissionMode] : []),
       ...(config.allowedTools?.length ? ["--allowedTools", config.allowedTools.join(",")] : []),
       ...(config.disallowedTools?.length ? ["--disallowedTools", config.disallowedTools.join(",")] : []),
-      // E9.2 wires spec.orgTools.mcpConfig via --mcp-config here.
+      // E9.2: the control plane's generated MCP config (org-tools server + per-run
+      // credential inside) — passed inline; the CLI accepts a JSON string or a path.
+      ...(spec.orgTools.mcpConfig ? ["--mcp-config", JSON.stringify(spec.orgTools.mcpConfig)] : []),
     ];
     const child = spawn(config.cliPath, args, {
       cwd: spec.workspaceDir && existsSync(spec.workspaceDir) ? spec.workspaceDir : undefined,
