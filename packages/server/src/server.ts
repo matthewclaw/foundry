@@ -14,6 +14,7 @@ import { createRuntime, type AdapterRegistry, type Runtime, type RunQueueLimits 
 import { composeContext } from "./context/compose.js";
 import { problemErrorHandler } from "./problem.js";
 import { createTokenRegistry, type TokenRegistry } from "./orgtools/tokens.js";
+import { commitAgentMemory } from "./memory/git.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerWorkstreamRoutes } from "./routes/workstreams.js";
 import { registerQueryRoutes } from "./routes/queries.js";
@@ -73,6 +74,8 @@ export function createServer(config: ServerConfig): FoundryServer {
       };
     },
     revokeRunCredential: (run) => tokens.revokeRun(run.id),
+    // E11.1: git-version the agent's memory after every run that touched it.
+    afterRun: ({ run, agent }) => commitAgentMemory(config.dataDir, agent.memory_ref, `run ${run.id}`),
   });
 
   const app = Fastify({ logger: false });

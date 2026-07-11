@@ -68,6 +68,11 @@ function memorySection(dataDir: string, agent: Agent): string {
     "## Memory index",
     "",
     index ?? "(no memory index yet — create INDEX.md as you learn things worth keeping)",
+    "",
+    "> Curation: when you learn something durable (a fact, a decision, a procedure that",
+    "> worked), write it to your memory/skills directory and keep INDEX.md current — one",
+    "> line per file. Fix or delete notes you discover to be wrong. Your memory is",
+    "> git-versioned after every run; edit freely.",
   ].join("\n");
 }
 
