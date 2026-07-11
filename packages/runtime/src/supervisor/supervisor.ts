@@ -7,14 +7,14 @@
  * Wired as a `RunQueue`'s `execute` callback (E4.1): the queue decides *when* a job may
  * run, this decides *what happens* while it does.
  */
-import type { Run } from "@foundry/core";
+import { formatRef, type Run } from "@foundry/core";
 import type { Store } from "@foundry/store";
 import type { EngineEvent, ExecutionAdapter, RunHandle, RunSpec } from "@foundry/adapter-api";
 import type { RunQueueJob } from "../scheduler/queue.js";
 import type { PidRegistry } from "../reconcile/reconcile.js";
 
 export interface RunSupervisorOptions {
-  store: Pick<Store, "commands" | "workstreams" | "runs" | "events">;
+  store: Pick<Store, "commands" | "workstreams" | "runs" | "events" | "agents">;
   /** Adapter registry keyed by engine id (contracts.md: Runtime "configured with Store + adapter registry"). */
   adapters: Record<string, ExecutionAdapter>;
   defaultWallClockMs?: number;
@@ -368,11 +368,38 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
         });
         return;
       case "reasoning_summary":
-      case "permission_request":
-        // ponytail: reasoning_summary has no catalogue slot yet (E1.3 is additive-only,
-        // not extended here); permission_request → Foundry approval is E6.4's job, out of
-        // scope for the run supervisor. Both silently unreported for now.
+        // ponytail: no catalogue slot yet (E1.3 is additive-only, not extended here) —
+        // silently unreported, OPEN_ISSUES #23.
         return;
+      case "permission_request": {
+        // E6.4: engine permission prompt → Foundry approval item. The RUN state is
+        // deliberately untouched: an engine may keep streaming past the request (its
+        // hook resolves in-process, see the fake's permission-request-granted scenario),
+        // and the async grant path schedules a *fresh* run via the approvals route.
+        const agent = job.agentId ? opts.store.agents.get(job.agentId) : undefined;
+        if (!agent) return; // no agent to attribute the request to (bare-supervisor callers)
+        const approval = opts.store.commands.requestApproval({
+          requested_by_actor: agent.actor_id,
+          kind: "engine_permission",
+          payload: {
+            request_id: event.requestId,
+            description: event.description,
+            run_id: run.id,
+            workstream_id: job.workstreamId,
+          },
+        });
+        // Make the wait visible on the workstream with a real waiting_on_ref (#25's
+        // approval case): only from `active` — if it's already waiting, keep that ref.
+        if (opts.store.workstreams.get(job.workstreamId)?.state === "active") {
+          opts.store.commands.transitionWorkstreamState({
+            id: job.workstreamId,
+            to: "waiting",
+            actorId: null,
+            waitingOnRef: formatRef("approval", approval.id),
+          });
+        }
+        return;
+      }
       case "run_ended":
         handleRunEnded(run, job, event);
         return;

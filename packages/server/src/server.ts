@@ -20,6 +20,7 @@ import { registerQueryRoutes } from "./routes/queries.js";
 import { registerFeedRoutes } from "./routes/feed.js";
 import { registerOrgToolRoutes } from "./routes/orgtools.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerApprovalRoutes } from "./routes/approvals.js";
 
 export interface ServerConfig {
   dataDir: string;
@@ -86,6 +87,7 @@ export function createServer(config: ServerConfig): FoundryServer {
   registerFeedRoutes(app, ctx);
   registerOrgToolRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
+  registerApprovalRoutes(app, ctx);
 
   return {
     app,

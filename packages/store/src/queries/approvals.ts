@@ -6,6 +6,8 @@ import { rowToApproval, type ApprovalRow } from "../mutations/approvals.js";
 export interface ApprovalQueries {
   get(id: ApprovalId): Approval | undefined;
   listPending(): Approval[];
+  /** Most-recently-decided approvals requested by an actor (context composition, E6.4). */
+  listDecidedFor(requestedByActor: string, limit?: number): Approval[];
 }
 
 export function createApprovalQueries(db: Db): ApprovalQueries {
@@ -18,6 +20,14 @@ export function createApprovalQueries(db: Db): ApprovalQueries {
       const rows = db
         .prepare(`SELECT * FROM approvals WHERE state = 'pending' ORDER BY created_at`)
         .all() as ApprovalRow[];
+      return rows.map(rowToApproval);
+    },
+    listDecidedFor(requestedByActor, limit = 5) {
+      const rows = db
+        .prepare(
+          `SELECT * FROM approvals WHERE requested_by_actor = ? AND state != 'pending' ORDER BY decided_at DESC LIMIT ?`
+        )
+        .all(requestedByActor, limit) as ApprovalRow[];
       return rows.map(rowToApproval);
     },
   };
