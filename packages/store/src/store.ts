@@ -102,6 +102,7 @@ export interface StoreCommands {
 }
 
 export interface Store {
+  db: Db;
   mutate: Mutate;
   agents: AgentQueries;
   teams: TeamQueries;
@@ -127,6 +128,7 @@ export function createStore(config: StoreConfig): Store {
   const mutate = createMutate(db, bus);
 
   return {
+    db,
     mutate,
     agents: createAgentQueries(db),
     teams: createTeamQueries(db),

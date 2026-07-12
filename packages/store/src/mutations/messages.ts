@@ -5,6 +5,7 @@ import {
   newMessageId,
   newThreadId,
   type ActorId,
+  type Agent,
   type Message,
   type MessageType,
   type MessageVisibility,
@@ -144,7 +145,10 @@ export function resolveMessageDisposition(db: Db, mutate: Mutate, args: ResolveM
         entity_type: "message",
         entity_id: args.id,
         type: event,
-        payload: { disposition: args.to, disposition_ref: args.dispositionRef ?? null },
+        // Payload shape is per-event-type (catalogue.ts): message_resolved carries
+        // {disposition, disposition_ref}, message_expired's is empty — sending the
+        // richer shape unconditionally fails the empty schema's validation.
+        payload: event === "message_expired" ? {} : { disposition: args.to, disposition_ref: args.dispositionRef ?? null },
       },
     ],
   });
@@ -200,4 +204,45 @@ export function rowToMessage(row: MessageRow): Message {
     created_at: row.created_at,
     resolved_at: row.resolved_at,
   };
+}
+
+/** E8.3: Sweep expired question messages and mark them as expired. */
+export interface SweepExpiredQuestionsArgs {
+  db: Db;
+  mutate: Mutate;
+  now: Date;
+  /** Callback to resolve asker's policy; returns question_expiry_hours or null if no policy known. */
+  resolvePolicyForActor: (actorId: ActorId) => { question_expiry_hours: number } | null;
+}
+
+export function sweepExpiredQuestions(args: SweepExpiredQuestionsArgs): MessageRow[] {
+  const { db, mutate, now, resolvePolicyForActor } = args;
+  const nowDate = new Date(now);
+
+  // ponytail: direct SQL query instead of full materialization; expired messages typically rare.
+  const rows = db
+    .prepare(`SELECT * FROM messages WHERE type = 'question' AND disposition = 'open'`)
+    .all() as MessageRow[];
+
+  const expired: MessageRow[] = [];
+
+  for (const row of rows) {
+    const policy = resolvePolicyForActor(row.from_actor_id as ActorId);
+    if (!policy) continue; // No policy known for this actor (e.g. human); skip.
+
+    const createdAt = new Date(row.created_at);
+    const ageHours = (nowDate.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+
+    if (ageHours > policy.question_expiry_hours) {
+      resolveMessageDisposition(db, mutate, {
+        id: row.id,
+        messageType: "question",
+        to: "expired",
+        actorId: null, // System-driven expiry, not an actor decision
+      });
+      expired.push(row);
+    }
+  }
+
+  return expired;
 }

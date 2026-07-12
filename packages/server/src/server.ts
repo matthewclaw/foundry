@@ -15,6 +15,7 @@ import { composeContext } from "./context/compose.js";
 import { problemErrorHandler } from "./problem.js";
 import { createTokenRegistry, type TokenRegistry } from "./orgtools/tokens.js";
 import { commitAgentMemory } from "./memory/git.js";
+import { sweepExpiredQuestions } from "./sweep/expireMessages.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerWorkstreamRoutes } from "./routes/workstreams.js";
 import { registerQueryRoutes } from "./routes/queries.js";
@@ -34,6 +35,8 @@ export interface ServerConfig {
   limits?: RunQueueLimits;
   defaultWallClockMs?: number;
   defaultStallMs?: number;
+  /** E8.3: Interval to sweep expired questions (default 1 hour). */
+  questionExpiryIntervalMs?: number;
 }
 
 export interface FoundryServer {
@@ -54,6 +57,7 @@ export function createServer(config: ServerConfig): FoundryServer {
   // Known once listen() returns; runs enqueued before that mint URL-less credentials
   // (fine — nothing can call the API before it listens either).
   let baseUrl = "";
+  let questionExpiryInterval: ReturnType<typeof setInterval> | undefined;
   const runtime = createRuntime({
     store,
     adapters: config.adapters,
@@ -140,9 +144,25 @@ export function createServer(config: ServerConfig): FoundryServer {
       void reconciled;
       const address = await app.listen({ host: config.host ?? "127.0.0.1", port: config.port ?? 0 });
       baseUrl = address;
+
+      // E8.3: Start periodic expiry sweep. Default 1 hour; .unref() so tests don't hang.
+      const interval = config.questionExpiryIntervalMs ?? 60 * 60 * 1000;
+      questionExpiryInterval = setInterval(() => {
+        try {
+          sweepExpiredQuestions({ store, now: new Date() });
+        } catch (e) {
+          // Sweep failures are logged but don't crash the server.
+          console.error("Question expiry sweep failed:", e);
+        }
+      }, interval);
+      questionExpiryInterval.unref();
+
       return address;
     },
     async stop() {
+      if (questionExpiryInterval) {
+        clearInterval(questionExpiryInterval);
+      }
       await app.close();
       store.close();
     },
