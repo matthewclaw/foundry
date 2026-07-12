@@ -43,7 +43,7 @@ export function createSearchQueries(db: Db): SearchQueries {
       // Messages
       {
         let sql = `SELECT m.id, m.body_md, m.created_at FROM messages m
-                   JOIN messages_fts ON messages_fts.rowid = m.rowid
+                   JOIN messages_fts ON messages_fts.id = m.id
                    WHERE messages_fts.body_md MATCH ?`;
         const params: unknown[] = [ftsQuery];
         if (filter?.actor_ids) {
@@ -64,7 +64,7 @@ export function createSearchQueries(db: Db): SearchQueries {
         const wsHits = new Map<string, { id: string; title: string; goal_md: string; created_at: string }>();
 
         let sql1 = `SELECT w.id, w.title, w.goal_md, w.created_at FROM workstreams w
-                    JOIN workstreams_fts ON workstreams_fts.rowid = w.rowid
+                    JOIN workstreams_fts ON workstreams_fts.id = w.id
                     WHERE workstreams_fts.title MATCH ?`;
         const params1: unknown[] = [ftsQuery];
         if (filter?.agent_ids) {
@@ -85,7 +85,7 @@ export function createSearchQueries(db: Db): SearchQueries {
 
         // Also search goal_md
         let sql2 = `SELECT w.id, w.title, w.goal_md, w.created_at FROM workstreams w
-                    JOIN workstreams_fts ON workstreams_fts.rowid = w.rowid
+                    JOIN workstreams_fts ON workstreams_fts.id = w.id
                     WHERE workstreams_fts.goal_md MATCH ?`;
         const params2: unknown[] = [ftsQuery];
         if (filter?.agent_ids) {
@@ -117,7 +117,7 @@ export function createSearchQueries(db: Db): SearchQueries {
       // Run results
       {
         let sql = `SELECT r.id, r.result_json, COALESCE(r.ended_at, r.started_at) AS ts FROM runs r
-                   JOIN runs_fts ON runs_fts.rowid = r.rowid
+                   JOIN runs_fts ON runs_fts.id = r.id
                    JOIN workstreams w ON w.id = r.workstream_id
                    WHERE runs_fts.result_json MATCH ? AND COALESCE(r.ended_at, r.started_at) IS NOT NULL`;
         const params: unknown[] = [ftsQuery];

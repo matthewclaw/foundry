@@ -427,4 +427,31 @@ describe("E2.3 entity queries", () => {
     const hits = q.text("hello");
     expect(hits.length).toBeGreaterThanOrEqual(0); // May or may not match depending on query syntax
   });
+
+  it("search: matches the right message even when the base table's and FTS table's rowid sequences diverge", () => {
+    // Regression: the join must key on the FTS table's `id UNINDEXED` column, not on
+    // SQLite's implicit `rowid` — the two tables assign rowids independently, so they
+    // only coincidentally align when every insert happens in lockstep with no gaps.
+    // Force a divergence directly (no message-delete command exists in this system to
+    // create one naturally) by inserting an extra messages_fts row ahead of the real
+    // one, shifting its rowid out of sync with the base table's.
+    const { db, mutate } = harness();
+    const actor = newActorId();
+    const thread = getOrCreateThread(db, mutate, "workstream", "ws1");
+
+    db.prepare(`INSERT INTO messages_fts (id, body_md) VALUES (?, ?)`).run("decoy-id", "unrelated decoy content");
+
+    const msg = sendMessage(mutate, {
+      thread_id: thread.id,
+      from_actor_id: actor,
+      type: "status",
+      body_md: "the real needle content",
+    });
+
+    const q = createSearchQueries(db);
+    const hits = q.text("needle", { actor_ids: [actor] });
+    expect(hits).toHaveLength(1);
+    expect(hits[0].ref).toBe(`message:${msg.id}`);
+    expect(hits[0].excerpt).toContain("needle");
+  });
 });
