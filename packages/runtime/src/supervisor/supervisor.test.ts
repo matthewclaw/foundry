@@ -114,6 +114,58 @@ describe("createRunSupervisor — E4.2", () => {
     ]);
   });
 
+  it("F15: a malformed EngineEvent from a buggy adapter fails the run safely, not the org state", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Buggy adapter");
+
+    // A hand-rolled adapter that yields one valid run_started, then garbage that
+    // doesn't match any EngineEvent variant — simulating a real bug in a real adapter,
+    // not something the fake adapter's own type-checked scenario DSL could construct.
+    const buggyAdapter: ExecutionAdapter = {
+      id: "buggy",
+      capabilities: () => ({
+        resume: false,
+        stream_events: true,
+        tool_events: false,
+        usage: false,
+        reasoning_summaries: false,
+        permission_hooks: false,
+        mcp: false,
+      }),
+      start: async (spec) => ({ runId: spec.runId, adapterId: "buggy" }),
+      cancel: async () => {},
+      events: async function* () {
+        yield { t: "run_started", sessionRef: "sess-buggy" };
+        yield { t: "not_a_real_event", surprise: true } as never;
+      },
+    };
+
+    const supervisor = createRunSupervisor({ store, adapters: { buggy: buggyAdapter } });
+    const run = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/malformed/context.md",
+      engine_id: "buggy",
+    });
+
+    await supervisor.execute(run, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/malformed/context.md",
+      engineId: "buggy",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: {},
+    });
+
+    // Folds via the same abnormal-termination path as F1/F2 (was "running" when the
+    // malformed event arrived) — resumable, not a corrupted/stuck state, and the
+    // engine is blamed (the reason names the adapter), not the org state.
+    const finished = store.runs.get(run.id);
+    expect(finished?.state).toBe("interrupted");
+  });
+
   it("folds a needs_input outcome into run awaiting_input + workstream waiting", async () => {
     const store = testStore();
     const agentId = bootstrapAgent(store);

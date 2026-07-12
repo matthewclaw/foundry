@@ -9,7 +9,7 @@
  */
 import { formatRef, type Run } from "@foundry/core";
 import type { Store } from "@foundry/store";
-import type { EngineEvent, ExecutionAdapter, RunHandle, RunSpec } from "@foundry/adapter-api";
+import { EngineEventSchema, type EngineEvent, type ExecutionAdapter, type RunHandle, type RunSpec } from "@foundry/adapter-api";
 import type { RunQueueJob } from "../scheduler/queue.js";
 import type { PidRegistry } from "../reconcile/reconcile.js";
 
@@ -111,7 +111,17 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
           break; // Iterator genuinely exhausted
         }
 
-        const event = raced.value;
+        // F15: a buggy adapter's event is trusted at the type level only (TS erases at
+        // runtime) — validate before folding it into any state. Throwing here is caught
+        // by the same abnormal-termination path as F1/F2 below, so a malformed event
+        // fails the run safely (adapter blamed, org state never sees the bad shape)
+        // instead of a downstream handler silently accepting garbage or throwing a
+        // confusing, unrelated error deeper in the switch.
+        const parsed = EngineEventSchema.safeParse(raced.value);
+        if (!parsed.success) {
+          throw new Error(`adapter "${adapter.id}" emitted a malformed EngineEvent: ${parsed.error.message}`);
+        }
+        const event = parsed.data;
         lastEventTime = Date.now();
 
         // Accumulate budget on usage_delta events
