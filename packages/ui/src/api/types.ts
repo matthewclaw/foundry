@@ -90,7 +90,7 @@ export interface Timeline {
   runs: TimelineRunEntry[];
 }
 
-/** Event shape on the SSE feed (core EventSchema, minimally). */
+/** Event shape on the SSE feed (core EventSchema — packages/core/src/schemas/entities.ts). */
 export interface FeedEvent {
   seq: number;
   ts: string;
@@ -98,6 +98,10 @@ export interface FeedEvent {
   entity_type: string;
   entity_id: string;
   payload: unknown;
+  actor_id: string | null;
+  run_id: string | null;
+  workstream_id: string | null;
+  task_id: string | null;
 }
 
 /** E10.3 — Cost report for an org/team/agent/workstream scope. */
