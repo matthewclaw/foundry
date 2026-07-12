@@ -17,6 +17,7 @@ const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const ALLOWED_WRITE_FILES = new Set([
   "mutate.ts",
   "db/migrate.ts",
+  "db/migrations.ts",
   "mutations/agents.ts",
   "mutations/teams.ts",
   "mutations/workstreams.ts",

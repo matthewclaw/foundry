@@ -77,6 +77,9 @@ export function sendMessage(mutate: Mutate, input: SendMessageInput): Message {
           now
         );
       tx.db.prepare(`UPDATE threads SET round_count = round_count + 1 WHERE id = ?`).run(input.thread_id);
+      tx.db
+        .prepare(`INSERT INTO messages_fts (id, body_md) VALUES (?, ?)`)
+        .run(id, input.body_md);
       return {
         id,
         thread_id: input.thread_id,

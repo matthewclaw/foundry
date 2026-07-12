@@ -188,4 +188,34 @@ CREATE TABLE schedules (
 );
 `,
   },
+  {
+    version: 2,
+    name: "fts5-search",
+    up: `
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+  id UNINDEXED,
+  body_md
+);
+
+CREATE VIRTUAL TABLE workstreams_fts USING fts5(
+  id UNINDEXED,
+  title,
+  goal_md
+);
+
+CREATE VIRTUAL TABLE runs_fts USING fts5(
+  id UNINDEXED,
+  result_json
+);
+
+INSERT INTO messages_fts (id, body_md)
+SELECT id, body_md FROM messages;
+
+INSERT INTO workstreams_fts (id, title, goal_md)
+SELECT id, title, goal_md FROM workstreams;
+
+INSERT INTO runs_fts (id, result_json)
+SELECT id, result_json FROM runs WHERE result_json IS NOT NULL;
+`,
+  },
 ];

@@ -109,6 +109,15 @@ export function transitionRunState(db: Db, mutate: Mutate, args: TransitionRunSt
           `UPDATE runs SET state = ?, result_json = COALESCE(?, result_json), engine_session_id = COALESCE(?, engine_session_id), started_at = COALESCE(started_at, ?), ended_at = COALESCE(?, ended_at) WHERE id = ?`
         )
         .run(args.to, toJson(args.result ?? null), args.engineSessionId ?? null, startedAt, endedAt, args.id);
+      if (args.result) {
+        // "INSERT OR REPLACE" only dedupes against a UNIQUE constraint, which FTS5
+        // virtual tables can't declare on a plain column — verified empirically it just
+        // inserts a second row, not a replace. Delete-then-insert instead, so a run
+        // whose result gets set more than once (defense in depth; the state machine
+        // otherwise guarantees exactly one) can't leave stale duplicate FTS rows.
+        tx.db.prepare(`DELETE FROM runs_fts WHERE id = ?`).run(args.id);
+        tx.db.prepare(`INSERT INTO runs_fts (id, result_json) VALUES (?, ?)`).run(args.id, toJson(args.result));
+      }
     },
     events: [
       {
