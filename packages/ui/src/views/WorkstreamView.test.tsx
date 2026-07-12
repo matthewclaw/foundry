@@ -200,12 +200,13 @@ describe("WorkstreamView", () => {
     expect(await screen.findByText(/run enqueued: run-777/)).toBeTruthy();
   });
 
-  it("toggles a run card between raw (default) and formatted views", async () => {
+  it("toggles a run card between raw (default) and formatted views, formatted also shows token usage", async () => {
     const toolRun: TimelineRunEntry = {
       run: { id: "run4", seq: 4, trigger: "human_message", state: "completed", started_at: "2026-07-01T10:00:00Z", ended_at: "2026-07-01T10:05:00Z", usage: null },
       events: [
         { seq: 20, type: "run_tool_call", payload: { name: "Glob", phase: "start", detail: { input: { pattern: "README.md" } } } },
         { seq: 21, type: "run_tool_call", payload: { name: "Glob", phase: "end", detail: {} } },
+        { seq: 22, type: "run_usage_updated", payload: { tokens_in: 5, tokens_out: 199, cost_usd: 0.0802 } },
       ],
       transcriptText: "Done.",
       transcriptSource: "live",
@@ -215,14 +216,53 @@ describe("WorkstreamView", () => {
     await screen.findByText("Run #4");
     // raw is the default: shows both raw events (start + end) verbatim
     expect(screen.getAllByText(/run_tool_call/)).toHaveLength(2);
+    expect(screen.getByText(/run_usage_updated/)).toBeTruthy();
 
     fireEvent.click(screen.getByText("Formatted"));
     // formatted: no raw event JSON, one friendly tool-call line instead (start only)
     expect(screen.queryByText(/run_tool_call/)).toBeNull();
     expect(screen.getByText("Glob")).toBeTruthy();
     expect(screen.getByText(/pattern: "README.md"/)).toBeTruthy();
+    // token usage is visible in formatted view too, not just raw
+    expect(screen.getByText(/5 in \/ 199 out/)).toBeTruthy();
+    expect(screen.getByText(/\$0\.0802/)).toBeTruthy();
 
     fireEvent.click(screen.getByText("Raw"));
     expect(screen.getAllByText(/run_tool_call/)).toHaveLength(2);
+  });
+
+  it("shows the actual message that triggered a run, not just the trigger kind", async () => {
+    const runWithMessage: TimelineRunEntry = {
+      run: { id: "run5", seq: 5, trigger: "human_message", state: "completed", started_at: "2026-07-01T10:00:00Z", ended_at: "2026-07-01T10:05:00Z", usage: null },
+      events: [{ seq: 30, type: "run_queued", payload: { trigger: "human_message", message_md: "What does 2+2 equal?" } }],
+      transcriptText: "4.",
+      transcriptSource: "live",
+    };
+    renderView({ workstreamId: "ws1", runs: [runWithMessage] });
+
+    await screen.findByText("Run #5");
+    // appears in the dedicated message bubble AND in the raw event JSON below it
+    expect(screen.getAllByText(/What does 2\+2 equal\?/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/💬 message:/)).toBeTruthy();
+  });
+
+  it("replies from an expanded run card instead of a separate always-visible composer", async () => {
+    vi.mocked(apiClient.postWorkstreamMessage).mockResolvedValue({ message_id: "m2", run_id: "run-999" });
+    renderView({ workstreamId: "ws1", runs: [fullRun] });
+
+    await screen.findByText("Run #1");
+    // no page-level composer anymore
+    expect(screen.queryByLabelText("Message")).toBeNull();
+
+    fireEvent.click(screen.getByText("Reply"));
+    fireEvent.change(screen.getByLabelText("Reply"), { target: { value: "And the flaky test?" } });
+    fireEvent.click(screen.getByText("Send"));
+
+    await waitFor(() =>
+      expect(apiClient.postWorkstreamMessage).toHaveBeenCalledWith("ws1", {
+        kind: "message",
+        body_md: "And the flaky test?",
+      })
+    );
   });
 });

@@ -2,7 +2,10 @@
  * E7.4 — Workstream run timeline (doc-06): runs as cards expanding to the event
  * stream + transcript, with the ADR-003 capability-degradation tag (transcriptSource
  * live/file/none) rendered explicitly — engines that report less show "limited engine
- * detail", never fake detail. Redirect composer POSTs to /api/workstreams/:id/messages.
+ * detail", never fake detail. Replying from a run card POSTs to
+ * /api/workstreams/:id/messages (there's no per-run "reply to" concept server-side —
+ * every message just enqueues the next run on the workstream — but the UI lets you
+ * start that from wherever you're reading, not only from a fixed box at the bottom).
  *
  * Live streaming: while a run is in flight, its output_delta text streams in over the
  * SSE feed (GET /api/events) into a local buffer and renders like a terminal, instead
@@ -23,10 +26,22 @@ function payloadSummary(payload: unknown): string {
   return s.length > 120 ? `${s.slice(0, 120)}…` : s;
 }
 
-/** Formatted view keeps only the tool calls (their start) — the operational events
- * (queued/started/usage-delta/etc.) are already reflected in the header badges. */
-function formattedToolCalls(events: TimelineRunEntry["events"]): TimelineRunEntry["events"] {
-  return events.filter((e) => e.type === "run_tool_call" && (e.payload as { phase?: string } | null)?.phase === "start");
+/** The message that triggered this run, if the run_queued event carried one (it does
+ * for human_message/redirect — not for e.g. a schedule or approval-decided trigger). */
+function triggerMessageText(events: TimelineRunEntry["events"]): string | undefined {
+  const queued = events.find((e) => e.type === "run_queued");
+  return (queued?.payload as { message_md?: string } | null)?.message_md;
+}
+
+/** Formatted view keeps the tool calls (their start) and the usage/cost updates — the
+ * rest of the operational events (queued/started/etc.) are already in the header badges
+ * or the message bubble above. */
+function formattedEvents(events: TimelineRunEntry["events"]): TimelineRunEntry["events"] {
+  return events.filter(
+    (e) =>
+      (e.type === "run_tool_call" && (e.payload as { phase?: string } | null)?.phase === "start") ||
+      e.type === "run_usage_updated"
+  );
 }
 
 function formatToolArgs(input: unknown): string {
@@ -36,21 +51,91 @@ function formatToolArgs(input: unknown): string {
     .join(", ");
 }
 
+function FormattedEventLine({ event }: { event: TimelineRunEntry["events"][number] }) {
+  if (event.type === "run_usage_updated") {
+    const u = event.payload as { tokens_in?: number; tokens_out?: number; cost_usd?: number } | null;
+    return (
+      <li className="text-xs text-gray-500">
+        🪙 {u?.tokens_in ?? 0} in / {u?.tokens_out ?? 0} out
+        {u?.cost_usd !== undefined && ` — $${u.cost_usd.toFixed(4)}`}
+      </li>
+    );
+  }
+  const p = event.payload as { name?: string; detail?: { input?: unknown } } | null;
+  const argSummary = p?.detail?.input ? formatToolArgs(p.detail.input) : "";
+  return (
+    <li className="text-xs text-gray-600">
+      🔧 <span className="font-medium text-gray-800">{p?.name ?? "tool"}</span>
+      {argSummary && <span className="text-gray-400"> — {argSummary}</span>}
+    </li>
+  );
+}
+
+/** Compact reply box embedded in a run card's footer — sends a message on the
+ * workstream (there's no server concept of replying to a specific past run). */
+function InlineReply({ workstreamId, onDone }: { workstreamId: string; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [body, setBody] = useState("");
+  const send = useMutation({
+    mutationFn: (body_md: string) => apiClient.postWorkstreamMessage(workstreamId, { kind: "message", body_md }),
+    onSuccess: () => {
+      setBody("");
+      void queryClient.invalidateQueries({ queryKey: ["timeline", workstreamId] });
+      onDone();
+    },
+  });
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
+      <textarea
+        aria-label="Reply"
+        className="w-full h-16 border border-gray-300 rounded p-2 text-sm"
+        placeholder="Reply…"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        disabled={send.isPending}
+      />
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          type="button"
+          className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+          disabled={send.isPending || !body.trim()}
+          onClick={() => body.trim() && send.mutate(body)}
+        >
+          {send.isPending ? "Sending…" : "Send"}
+        </button>
+        <button type="button" className="text-sm text-gray-500" onClick={onDone}>
+          Cancel
+        </button>
+        {send.error && (
+          <span className="text-xs text-red-600">
+            {send.error instanceof Error ? send.error.message : String(send.error)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RunCard({
+  workstreamId,
   entry,
   liveText,
   defaultExpanded,
 }: {
+  workstreamId: string;
   entry: TimelineRunEntry;
   liveText: string | undefined;
   defaultExpanded: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [view, setView] = useState<"raw" | "formatted">("raw");
+  const [showReply, setShowReply] = useState(false);
   const { run } = entry;
   const cost = run.usage?.cost_usd;
   const isLive = liveText !== undefined && RUN_NONTERMINAL_STATES.has(run.state);
   const text = isLive ? liveText : entry.transcriptText;
+  const message = triggerMessageText(entry.events);
 
   // A run that goes live after mount (e.g. a message just enqueued one) should pop
   // open on its own — don't make the user know to click it.
@@ -106,6 +191,12 @@ function RunCard({
       </div>
       {expanded && (
         <div className="px-4 py-3 border-t border-gray-100">
+          {message && (
+            <div className="mb-3 text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded p-2">
+              <span className="text-xs text-gray-500 mr-1">💬 message:</span>
+              {message}
+            </div>
+          )}
           {view === "raw" && entry.events.length > 0 && (
             <ul className="mb-3 space-y-1">
               {entry.events.map((e) => (
@@ -115,18 +206,11 @@ function RunCard({
               ))}
             </ul>
           )}
-          {view === "formatted" && formattedToolCalls(entry.events).length > 0 && (
+          {view === "formatted" && formattedEvents(entry.events).length > 0 && (
             <ul className="mb-3 space-y-1">
-              {formattedToolCalls(entry.events).map((e) => {
-                const p = e.payload as { name?: string; detail?: { input?: unknown } } | null;
-                const argSummary = p?.detail?.input ? formatToolArgs(p.detail.input) : "";
-                return (
-                  <li key={e.seq} className="text-xs text-gray-600">
-                    🔧 <span className="font-medium text-gray-800">{p?.name ?? "tool"}</span>
-                    {argSummary && <span className="text-gray-400"> — {argSummary}</span>}
-                  </li>
-                );
-              })}
+              {formattedEvents(entry.events).map((e) => (
+                <FormattedEventLine key={e.seq} event={e} />
+              ))}
             </ul>
           )}
           {text !== null && text !== undefined ? (
@@ -157,15 +241,26 @@ function RunCard({
               No transcript available — this engine reported limited detail for this run (capability degradation, ADR-003).
             </p>
           )}
+          {showReply ? (
+            <InlineReply workstreamId={workstreamId} onDone={() => setShowReply(false)} />
+          ) : (
+            <button
+              type="button"
+              className="mt-3 text-sm text-blue-700 hover:underline"
+              onClick={() => setShowReply(true)}
+            >
+              Reply
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-/** Send a message on this workstream — the first one starts the conversation, an
- * intermediate one course-corrects a run already in flight; both just enqueue a run. */
-function MessageComposer({ workstreamId }: { workstreamId: string }) {
+/** Shown only when the workstream has no runs yet — there's no run card to reply from,
+ * so this is how the conversation starts in the first place. */
+function StartConversationForm({ workstreamId }: { workstreamId: string }) {
   const queryClient = useQueryClient();
   const [body, setBody] = useState("");
   const send = useMutation({
@@ -188,7 +283,7 @@ function MessageComposer({ workstreamId }: { workstreamId: string }) {
       <textarea
         aria-label="Message"
         className="w-full h-20 border border-gray-300 rounded p-2 text-sm"
-        placeholder="Say something to this agent — this starts or continues the conversation…"
+        placeholder="Say something to this agent to start the conversation…"
         value={body}
         onChange={(e) => setBody(e.target.value)}
         disabled={send.isPending}
@@ -306,18 +401,21 @@ export default function WorkstreamView() {
     <div className="p-6 max-w-3xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-4">Workstream {data.workstreamId}</h1>
       {data.runs.length === 0 ? (
-        <p className="text-sm text-gray-500">No runs yet.</p>
+        <>
+          <p className="text-sm text-gray-500 mb-4">No runs yet.</p>
+          <StartConversationForm workstreamId={id!} />
+        </>
       ) : (
         data.runs.map((entry) => (
           <RunCard
             key={entry.run.id}
+            workstreamId={id!}
             entry={entry}
             liveText={liveText[entry.run.id]}
             defaultExpanded={entry.run.id === lastRunId}
           />
         ))
       )}
-      <MessageComposer workstreamId={id!} />
     </div>
   );
 }
