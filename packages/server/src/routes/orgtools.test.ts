@@ -694,19 +694,87 @@ describe("cancel_task — E8.6", () => {
 });
 
 describe("E10.4 anomaly rules — cap hits escalation", () => {
-  it("cap hits escalation infrastructure is wired", async () => {
-    // The cap hits escalation code is triggered when delegate_task gets
-    // a depth_cap or budget_exceeded error from checkDelegation. Testing
-    // the full flow end-to-end requires carefully constructed task hierarchies
-    // and is better left to integration tests with real engine scenarios.
-    // Here we just verify the escalation infrastructure exists and compiles.
+  it("depth_cap hit both returns the error to the caller and fires a surfaced escalation", async () => {
+    // Build a chain of task-bound workstreams down to the depth cap (default max_depth 3):
+    // depth0 (root, human) -> depth1 -> depth2 -> depth3. A depth3-executing agent trying
+    // to delegate one level further (depth4) must trip depth_cap.
+    const human = server.store.commands.getOrCreateHumanActor();
     const { agentId } = bootstrapAgent();
     const agent = server.store.agents.get(agentId as never)!;
 
-    const human = server.store.commands.getOrCreateHumanActor();
-    const thread = server.store.commands.getOrCreateThread("workstream", agent.id);
+    let parentTask = server.store.commands.createTask({
+      parent_task_id: null,
+      delegator_actor_id: human,
+      assignee_agent_id: agent.id,
+      spec_md: "root",
+      acceptance_criteria_md: "AC",
+      budget: { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
+    });
+    // Walk parentTask.depth from 0 to 3 by repeatedly delegating to the same agent.
+    while (parentTask.depth < 3) {
+      parentTask = server.store.commands.createTask({
+        parent_task_id: parentTask.id,
+        delegator_actor_id: agent.actor_id,
+        assignee_agent_id: agent.id,
+        spec_md: `depth ${parentTask.depth + 1}`,
+        acceptance_criteria_md: "AC",
+        budget: { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
+      });
+    }
+    const { token } = mintTokenForTaskRun(server, parentTask, agentId);
 
-    expect(thread.id).toBeTruthy();
-    expect(human).toBeTruthy();
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/delegate_task",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: "one too deep", spec_md: "work", acceptance_criteria_md: "AC", assignee_agent_id: agentId },
+    });
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("depth_cap");
+
+    const thread = server.store.commands.getOrCreateThread("workstream", agent.id);
+    const escalation = server.store.messages.listByThread(thread.id).find((m) => m.type === "escalation");
+    expect(escalation).toBeDefined();
+    expect(escalation!.visibility).toBe("surfaced");
+    expect(escalation!.body_md).toContain("depth cap");
+  });
+
+  it("budget_exceeded hit both returns the error to the caller and fires a surfaced escalation", async () => {
+    const human = server.store.commands.getOrCreateHumanActor();
+    const { agentId } = bootstrapAgent();
+    const agent = server.store.agents.get(agentId as never)!;
+
+    const parentTask = server.store.commands.createTask({
+      parent_task_id: null,
+      delegator_actor_id: human,
+      assignee_agent_id: agent.id,
+      spec_md: "root",
+      acceptance_criteria_md: "AC",
+      budget: { limit_usd: 10, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
+    });
+    const { token } = mintTokenForTaskRun(server, parentTask, agentId);
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/delegate_task",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        title: "over budget",
+        spec_md: "work",
+        acceptance_criteria_md: "AC",
+        assignee_agent_id: agentId,
+        budget: { limit_usd: 11 },
+      },
+    });
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("budget_exceeded");
+
+    const thread = server.store.commands.getOrCreateThread("workstream", agent.id);
+    const escalation = server.store.messages.listByThread(thread.id).find((m) => m.type === "escalation");
+    expect(escalation).toBeDefined();
+    expect(escalation!.visibility).toBe("surfaced");
+    expect(escalation!.body_md).toContain("budget cap exceeded");
   });
 });

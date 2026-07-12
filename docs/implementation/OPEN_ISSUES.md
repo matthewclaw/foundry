@@ -549,3 +549,42 @@ Two separate gaps, resolved differently:
   with a live `claude` CLI (E9.5's manual lane is the natural place) records one real
   permission-prompt transcript to build `stream.ts`'s mapping and a genuine fixture
   against.
+
+---
+
+# Open Issues — raised during E10.4 (anomaly rules) implementation
+
+## 39. `usage_delta` never updates `workstream.budget.spent_usd`/`spent_tokens` (or task's) — a pre-existing gap affecting E8.2, E10.3, and E10.4
+
+Discovered while reviewing E10.4's budget-% anomaly rule: nothing anywhere in
+`packages/runtime/src/supervisor/supervisor.ts` folds a run's `usage_delta` events into
+the *workstream's* (or task's) persisted `Budget.spent_usd`/`spent_tokens`. `usage_delta`
+only ever produces a `run_usage_updated` **detail** event (audit trail on the run) —
+the `workstreams`/`tasks` tables' `budget_json.spent_*` fields are set once at creation
+and never incremented by anything. This means:
+
+- **E10.3's cost view** (`costRollup` projection, shipped this session) sums
+  `workstreams.budget_json` directly — it has been reporting whatever spend a workstream
+  was *created* with, never what its runs actually spent, since it shipped.
+- **E8.2's budget-conservation check** (`checkDelegation`, also this session) only ever
+  compares `limit_*` fields against sibling *limits*, never against actual `spent_*` —
+  so this one was unaffected by the gap (it doesn't read `spent_*` at all), but it means
+  "spent" and "limit" have quietly never been the same kind of number in practice: limits
+  are enforced structurally at delegation time, spend is never actually tracked against
+  them afterward.
+- **E10.4's budget-% rule** (this story) can only fire from a workstream whose
+  `budget_json` was directly database-edited to already be near the threshold — it can
+  never organically trigger from a real run's usage, because nothing ever writes real
+  usage into that field. The rule's *logic* is tested and correct (see
+  `packages/server/src/server.test.ts`, which drives it via direct store manipulation and
+  documents this gap inline); it just has no real data to react to yet.
+
+**Not fixed here** — it's a genuine feature (wiring `usage_delta` accumulation through to
+persisted workstream/task budget, likely a new store mutation + a call from the
+supervisor's event-handling switch, `packages/runtime/src/supervisor/supervisor.ts`'s
+`case "usage_delta":`) well outside E10.4's "anomaly rules → inbox" scope, and touches
+runtime + store together. Flagging for whoever picks this up next — likely bundled with
+whatever revisits F6 (budget_exhausted → task `blocked` → escalation, also not built:
+the *global* per-run `budgetCaps` watchdog cutoff in `supervisor.ts` exists and cuts a
+run off, but doesn't transition the task to `blocked(budget_exhausted)` or escalate,
+per doc-07's stated response for F6).

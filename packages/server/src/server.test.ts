@@ -65,41 +65,102 @@ async function idle(): Promise<void> {
   }
 }
 
+/** A scenario that ends cleanly in run_ended{outcome:"failed"} — no crash/hang/resume. */
+const FAIL_SCENARIO = {
+  name: "test-clean-fail",
+  description: "Ends in a clean failed outcome for E10.4 crash-loop testing.",
+  steps: [
+    { type: "event" as const, event: { t: "run_started" as const, sessionRef: "s" } },
+    { type: "event" as const, event: { t: "run_ended" as const, outcome: "failed" as const, error: "boom" } },
+  ],
+};
+
 describe("E10.4 anomaly rules — crash loop escalation", () => {
-  it("agent degradation infrastructure compiles and is wired", async () => {
-    // Note: a comprehensive test of the crash loop detection would require
-    // triggering real failed runs through the engine, which is complex in a test.
-    // This test verifies the infrastructure is in place.
-    const { agentId, wsId } = bootstrapAgent("happy-path");
+  it("escalates exactly once, on the 2nd consecutive failed run — not the 1st or 3rd", async () => {
+    const { agentId } = server.store.commands.createAgent({
+      name: "Flaky",
+      role: "Worker",
+      team_id: null,
+      engine_id: "fake",
+      engine_config: { scenario: FAIL_SCENARIO },
+      memory_ref: "agents/{agent_id}/memory",
+      charter_body_md: "# Flaky",
+    });
+    server.store.commands.transitionAgentState({ id: agentId, to: "active", actorId: null });
     const agent = server.store.agents.get(agentId as never)!;
-
-    // Verify escalation infrastructure exists
-    const human = server.store.commands.getOrCreateHumanActor();
+    const ws = server.store.commands.createWorkstream({
+      agent_id: agentId,
+      title: "Flaky work",
+      goal_md: "g",
+      origin: "human",
+      budget: { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
+    });
     const thread = server.store.commands.getOrCreateThread("workstream", agent.id);
-    expect(thread.id).toBeTruthy();
-    expect(human).toBeTruthy();
 
-    // The actual crash-loop detection runs in afterRun when a run fails;
-    // it's tested implicitly by the broader test suite when runs actually fail.
+    // Run 1: fails, but this is the 1st consecutive failure — no escalation yet.
+    server.runtime.enqueue({ workstreamId: ws.id, trigger: "human_message" });
+    await idle();
+    expect(server.store.messages.listByThread(thread.id).filter((m) => m.type === "escalation")).toHaveLength(0);
+
+    // Run 2: fails again — the 2nd consecutive failure crosses into "degraded". Exactly one escalation.
+    server.runtime.enqueue({ workstreamId: ws.id, trigger: "human_message" });
+    await idle();
+    const afterSecond = server.store.messages.listByThread(thread.id).filter((m) => m.type === "escalation");
+    expect(afterSecond).toHaveLength(1);
+    expect(afterSecond[0]!.visibility).toBe("surfaced");
+    expect(afterSecond[0]!.body_md).toContain("degraded");
+
+    // Run 3: fails again (still consecutive) — must NOT fire a second escalation.
+    server.runtime.enqueue({ workstreamId: ws.id, trigger: "human_message" });
+    await idle();
+    expect(server.store.messages.listByThread(thread.id).filter((m) => m.type === "escalation")).toHaveLength(1);
   });
 });
 
 describe("E10.4 anomaly rules — budget threshold escalation", () => {
-  it("budget threshold detection infrastructure compiles and is wired", async () => {
+  it("escalates the first time a workstream crosses 80% of its USD budget, not again on a later run", async () => {
     const { agentId, wsId } = bootstrapAgent("happy-path");
-
-    // Create a workstream with limited budget
-    const limitedWs = server.store.commands.createWorkstream({
-      agent_id: agentId as never,
-      title: "Budget-limited work",
-      goal_md: "test",
-      origin: "human",
-      budget: { limit_usd: 100, limit_tokens: 1000, spent_usd: 0, spent_tokens: 0 },
+    const agent = server.store.agents.get(agentId as never)!;
+    // Directly set spend to just under 80% — no run has driven real spend tracking here
+    // (nothing in the runtime yet folds usage_delta into workstream.budget, OPEN_ISSUES —
+    // this test exercises the escalation-firing logic against store state directly, which
+    // is what afterRun actually reads).
+    server.store.mutate({
+      apply: (tx) => {
+        tx.db
+          .prepare(`UPDATE workstreams SET budget_json = ? WHERE id = ?`)
+          .run(JSON.stringify({ limit_usd: 100, limit_tokens: null, spent_usd: 79, spent_tokens: 0 }), wsId);
+      },
+      events: [],
     });
+    const thread = server.store.commands.getOrCreateThread("workstream", wsId);
 
-    // Verify workstream was created with the right budget
-    const ws = server.store.workstreams.get(limitedWs.id)!;
-    expect(ws.budget.limit_usd).toBe(100);
-    expect(ws.budget.limit_tokens).toBe(1000);
+    // Run 1: happy-path completes; spend is still 79/100 (nothing bumped it) — no escalation.
+    server.runtime.enqueue({ workstreamId: wsId as never, trigger: "human_message" });
+    await idle();
+    expect(server.store.messages.listByThread(thread.id).filter((m) => m.type === "escalation")).toHaveLength(0);
+
+    // Now push spend to 85/100 (crossing 80%) directly, then run again.
+    server.store.mutate({
+      apply: (tx) => {
+        tx.db
+          .prepare(`UPDATE workstreams SET budget_json = ? WHERE id = ?`)
+          .run(JSON.stringify({ limit_usd: 100, limit_tokens: null, spent_usd: 85, spent_tokens: 0 }), wsId);
+      },
+      events: [],
+    });
+    server.runtime.enqueue({ workstreamId: wsId as never, trigger: "human_message" });
+    await idle();
+    const afterCrossing = server.store.messages.listByThread(thread.id).filter((m) => m.type === "escalation");
+    expect(afterCrossing).toHaveLength(1);
+    expect(afterCrossing[0]!.visibility).toBe("surfaced");
+    expect(afterCrossing[0]!.body_md).toContain("85%");
+    expect(afterCrossing[0]!.body_md).toContain("USD budget");
+
+    // A further run, still over 80%, must not fire a duplicate.
+    server.runtime.enqueue({ workstreamId: wsId as never, trigger: "human_message" });
+    await idle();
+    expect(server.store.messages.listByThread(thread.id).filter((m) => m.type === "escalation")).toHaveLength(1);
+    void agent;
   });
 });

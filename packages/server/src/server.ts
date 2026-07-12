@@ -84,8 +84,14 @@ export function createServer(config: ServerConfig): FoundryServer {
       // E11.1: git-version the agent's memory after every run that touched it.
       commitAgentMemory(config.dataDir, agent.memory_ref, `run ${run.id}`);
 
-      // E10.4 Rule 1: Crash loop detection — escalate when agent status becomes degraded
-      if (run.state === "failed") {
+      // E10.4 Rule 1: Crash loop detection — escalate when agent status becomes degraded.
+      // `run` is the pre-execution object `execute()` resolved before the supervisor ran
+      // (packages/runtime/src/facade.ts) — its `.state` is never updated in place as the
+      // run progresses (all state changes go through the store, not this in-memory
+      // reference), so checking `run.state` directly here would almost always see the
+      // run's *original* state (e.g. "queued"), never "failed". Re-fetch fresh.
+      const freshRun = store.runs.get(run.id);
+      if (freshRun?.state === "failed") {
         const facts = computeAgentStatusFacts(store.db, agent.id);
         if (facts.recentConsecutiveFailures === 2) {
           const human = store.commands.getOrCreateHumanActor();
@@ -102,26 +108,34 @@ export function createServer(config: ServerConfig): FoundryServer {
         }
       }
 
-      // E10.4 Rule 2: Budget % threshold detection — escalate at 80% of budget limit
-      if (workstream.budget) {
-        const { limit_usd, limit_tokens, spent_usd, spent_tokens } = workstream.budget;
+      // E10.4 Rule 2: Budget % threshold detection — escalate at 80% of budget limit.
+      // Re-fetch fresh: the destructured `workstream` above is the pre-run snapshot
+      // `execute()` resolved before this run started (packages/runtime/src/facade.ts),
+      // not updated with whatever this run spent — checking it directly would always be
+      // one run stale. Anchored to the *workstream* (not the agent) since budget is
+      // per-workstream and an agent can have several; reusing the agent-level thread
+      // would let one workstream's "budget" escalation suppress another's as a false
+      // duplicate via the existing-open-escalation check below.
+      const freshWorkstream = store.workstreams.get(workstream.id);
+      if (freshWorkstream?.budget) {
+        const { limit_usd, limit_tokens, spent_usd, spent_tokens } = freshWorkstream.budget;
+        const thread = store.commands.getOrCreateThread("workstream", freshWorkstream.id);
+        const openEscalations = store.messages
+          .listByThread(thread.id)
+          .filter((m) => m.type === "escalation" && m.disposition === "open");
 
         // Check USD budget threshold
         if (limit_usd !== null && spent_usd / limit_usd >= 0.8) {
-          const existingEscalation = store.messages
-            .listByThread(store.commands.getOrCreateThread("workstream", agent.id).id)
-            .some((m) => m.type === "escalation" && m.disposition === "open" && m.body_md.includes("budget"));
-
+          const existingEscalation = openEscalations.some((m) => m.body_md.includes("USD budget"));
           if (!existingEscalation) {
             const human = store.commands.getOrCreateHumanActor();
-            const thread = store.commands.getOrCreateThread("workstream", agent.id);
             const percentUsed = Math.round((spent_usd / limit_usd) * 100);
             store.commands.sendMessage({
               thread_id: thread.id,
               from_actor_id: agent.actor_id,
               to_actor_id: human,
               type: "escalation",
-              body_md: `Workstream is at ${percentUsed}% of USD budget ($${spent_usd.toFixed(2)} of $${limit_usd.toFixed(2)}). Consider pausing or concluding work.`,
+              body_md: `Workstream "${freshWorkstream.title}" (workstream:${freshWorkstream.id}) is at ${percentUsed}% of USD budget ($${spent_usd.toFixed(2)} of $${limit_usd.toFixed(2)}). Consider pausing or concluding work.`,
               refs: [],
               visibility: "surfaced",
             });
@@ -130,20 +144,16 @@ export function createServer(config: ServerConfig): FoundryServer {
 
         // Check tokens budget threshold
         if (limit_tokens !== null && spent_tokens / limit_tokens >= 0.8) {
-          const existingEscalation = store.messages
-            .listByThread(store.commands.getOrCreateThread("workstream", agent.id).id)
-            .some((m) => m.type === "escalation" && m.disposition === "open" && m.body_md.includes("tokens"));
-
+          const existingEscalation = openEscalations.some((m) => m.body_md.includes("token budget"));
           if (!existingEscalation) {
             const human = store.commands.getOrCreateHumanActor();
-            const thread = store.commands.getOrCreateThread("workstream", agent.id);
             const percentUsed = Math.round((spent_tokens / limit_tokens) * 100);
             store.commands.sendMessage({
               thread_id: thread.id,
               from_actor_id: agent.actor_id,
               to_actor_id: human,
               type: "escalation",
-              body_md: `Workstream is at ${percentUsed}% of token budget (${spent_tokens} of ${limit_tokens} tokens). Consider pausing or concluding work.`,
+              body_md: `Workstream "${freshWorkstream.title}" (workstream:${freshWorkstream.id}) is at ${percentUsed}% of token budget (${spent_tokens} of ${limit_tokens} tokens). Consider pausing or concluding work.`,
               refs: [],
               visibility: "surfaced",
             });
