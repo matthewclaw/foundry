@@ -30,7 +30,7 @@ import type { RouteContext } from "../server.js";
 import { ProblemError } from "../problem.js";
 import type { RunCredential } from "../orgtools/tokens.js";
 import { checkDelegation, resolvePolicy, resolveRouting } from "../policy/policy.js";
-import { acceptTask, rejectTask } from "../tasks/decide.js";
+import { acceptTask, rejectTask, cancelTaskCascade } from "../tasks/decide.js";
 
 export type ToolHandler = (ctx: RouteContext, cred: RunCredential, input: unknown) => ToolResult<unknown> | Promise<ToolResult<unknown>>;
 
@@ -273,6 +273,12 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     const { task_id, reason } = input as any;
     const result = rejectTask({ store: ctx.store, runtime: ctx.runtime, taskId: task_id, decidedBy: cred.actorId, reason });
     return "code" in result ? { ok: false, error: result } : { ok: true, data: { ok: true, escalated: result.escalated } };
+  },
+
+  cancel_task: async (ctx, cred, input) => {
+    const { task_id, reason } = input as any;
+    const err = await cancelTaskCascade({ store: ctx.store, runtime: ctx.runtime, taskId: task_id, cancelledBy: cred.actorId, reason });
+    return err ? { ok: false, error: err } : { ok: true, data: { ok: true } };
   },
 
   send_message: (ctx, cred, input) => {

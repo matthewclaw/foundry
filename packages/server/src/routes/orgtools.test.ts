@@ -482,3 +482,113 @@ describe("E8.1 — delegation end-to-end: delegate -> spawn -> deliver -> accept
     expect(escalation!.visibility).toBe("surfaced");
   });
 });
+
+describe("cancel_task — E8.6", () => {
+  it("an agent can cancel its own subordinate's task via the org-tool", async () => {
+    const { agentId: aId } = bootstrapAgent();
+    const { agentId: bId } = bootstrapAgent();
+    const a = server.store.agents.get(aId as never)!;
+    const b = server.store.agents.get(bId as never)!;
+    const tokenA = server.tokens.mint({ runId: "run_cancel_a" as never, agentId: a.id, actorId: a.actor_id });
+
+    // Agent A delegates to Agent B
+    const delegateRes = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/delegate_task",
+      headers: { authorization: `Bearer ${tokenA}` },
+      payload: { title: "Task", spec_md: "work", acceptance_criteria_md: "AC", assignee_agent_id: bId },
+    });
+    const taskId = JSON.parse(delegateRes.body).data.task_id;
+    await idle();
+
+    // Agent A cancels the task
+    const cancelRes = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/cancel_task",
+      headers: { authorization: `Bearer ${tokenA}` },
+      payload: { task_id: taskId, reason: "no longer needed" },
+    });
+    expect(cancelRes.statusCode).toBe(200);
+    const body = JSON.parse(cancelRes.body);
+    expect(body.ok).toBe(true);
+
+    // Task is cancelled
+    expect(server.store.tasks.get(taskId)!.state).toBe("cancelled");
+
+    // Notification was sent to B
+    const thread = server.store.commands.getOrCreateThread("task", taskId);
+    const notification = server.store.messages.listByThread(thread.id).find(
+      (m) => m.type === "status" && m.body_md.includes("cancelled")
+    );
+    expect(notification).toBeDefined();
+    expect(notification!.to_actor_id).toBe(b.actor_id);
+  });
+
+  it("cancels a task subtree when called with a parent task", async () => {
+    const { agentId: rootId } = bootstrapAgent();
+    const { agentId: childId } = bootstrapAgent();
+    const root = server.store.agents.get(rootId as never)!;
+    const child = server.store.agents.get(childId as never)!;
+    const tokenRoot = server.tokens.mint({ runId: "run_root_cancel" as never, agentId: root.id, actorId: root.actor_id });
+
+    // Root delegates to Child
+    const delegateRes = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/delegate_task",
+      headers: { authorization: `Bearer ${tokenRoot}` },
+      payload: { title: "Parent", spec_md: "work", acceptance_criteria_md: "AC", assignee_agent_id: childId },
+    });
+    const parentTaskId = JSON.parse(delegateRes.body).data.task_id;
+    await idle();
+
+    // Child's token must resolve (via its run's workstream) back to parentTaskId, or
+    // its own further delegation below would land as an unrelated root task instead of
+    // parentTaskId's child — mint it against the real workstream/run delegate_task spawned.
+    const childWs = server.store.workstreams.list({ agent_id: childId as never }).find((ws) => ws.task_id === parentTaskId)!;
+    const childRun = server.store.runs.list({ workstream_id: childWs.id })[0]!;
+    const tokenChild = server.tokens.mint({ runId: childRun.id, agentId: child.id, actorId: child.actor_id });
+
+    // Child further delegates to another agent
+    const { agentId: grandchildId } = bootstrapAgent();
+    const grandchild = server.store.agents.get(grandchildId as never)!;
+    const delegateRes2 = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/delegate_task",
+      headers: { authorization: `Bearer ${tokenChild}` },
+      payload: {
+        title: "Child",
+        spec_md: "subwork",
+        acceptance_criteria_md: "AC2",
+        assignee_agent_id: grandchildId,
+      },
+    });
+    const childTaskId = JSON.parse(delegateRes2.body).data.task_id;
+    await idle();
+
+    // Root cancels the parent task — should cascade to child
+    const cancelRes = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/cancel_task",
+      headers: { authorization: `Bearer ${tokenRoot}` },
+      payload: { task_id: parentTaskId, reason: "cascade test" },
+    });
+    expect(cancelRes.statusCode).toBe(200);
+
+    // Both tasks are cancelled
+    expect(server.store.tasks.get(parentTaskId)!.state).toBe("cancelled");
+    expect(server.store.tasks.get(childTaskId)!.state).toBe("cancelled");
+
+    // Notifications sent to both assignees
+    const parentThread = server.store.commands.getOrCreateThread("task", parentTaskId);
+    const parentNotif = server.store.messages
+      .listByThread(parentThread.id)
+      .find((m) => m.type === "status" && m.body_md.includes("cancelled"));
+    expect(parentNotif!.to_actor_id).toBe(child.actor_id);
+
+    const childThread = server.store.commands.getOrCreateThread("task", childTaskId);
+    const childNotif = server.store.messages
+      .listByThread(childThread.id)
+      .find((m) => m.type === "status" && m.body_md.includes("cancelled"));
+    expect(childNotif!.to_actor_id).toBe(grandchild.actor_id);
+  });
+});
