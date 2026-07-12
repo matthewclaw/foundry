@@ -167,7 +167,13 @@ You are part of an organisation. Use the Foundry org-tools (when connected) to
 delegate tasks, send typed messages, escalate, request approvals, and search your
 history — never assume; escalate rather than guess on anything irreversible. Policy
 limits (budget, delegation depth) are enforced at the tool boundary and errors carry
-machine-readable codes you can react to.`);
+machine-readable codes you can react to.
+
+# Skills
+
+Your skills directory: \`<dataDir>/agents/orbit/skills\`
+
+(no skills yet — add them as SKILL.md files in subdirectories here)`);
   });
 
   it("resume trigger: trigger section swaps, everything else identical shape", () => {
@@ -175,7 +181,7 @@ machine-readable codes you can react to.`);
     const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f }), f);
     expect(text).toContain("# Trigger\n\nYou are resuming previous work on this workstream after an interruption.");
     // Section order is pinned regardless of trigger.
-    const order = ["# Charter", "# Memory", "# Workstream", "# Trigger", "# Pending items", "# Org-tools"];
+    const order = ["# Charter", "# Memory", "# Workstream", "# Trigger", "# Pending items", "# Org-tools", "# Skills"];
     const indices = order.map((h) => text.indexOf(`${h}\n`));
     expect(indices.every((i) => i >= 0)).toBe(true);
     expect([...indices].sort((a, b) => a - b)).toEqual(indices);
@@ -187,5 +193,73 @@ machine-readable codes you can react to.`);
     expect(path).toBe(join(f.dataDir, "runs", f.run.id, "context.md"));
     expect(existsSync(path)).toBe(true);
     expect(readFileSync(path, "utf8")).toContain("# Charter");
+  });
+
+  it("includes Skills section with discovered skills", () => {
+    const f = fixture("human_message");
+    // Create a skill directory with a real SKILL.md, using the same path computation as compose.ts
+    const skillsDir = join(f.dataDir, f.agent.memory_ref.replace(/[\\/]memory$/, ""), "skills");
+    mkdirSync(skillsDir, { recursive: true });
+    mkdirSync(join(skillsDir, "ponytail"), { recursive: true });
+    writeFileSync(
+      join(skillsDir, "ponytail", "SKILL.md"),
+      `---
+name: ponytail
+description: "Lazy senior dev mode"
+---
+
+# Ponytail
+You are a lazy senior developer...`,
+      "utf8"
+    );
+
+    const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f }), f);
+    expect(text).toContain("# Skills\n");
+    expect(text).toContain("Your skills directory: `<dataDir>/agents/orbit/skills`");
+    expect(text).toContain("- **ponytail** — Lazy senior dev mode");
+  });
+
+  it("renders empty skills section when no skills exist", () => {
+    const f = fixture("human_message");
+    // Skills directory doesn't exist yet
+    const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f }), f);
+    expect(text).toContain("# Skills\n");
+    expect(text).toContain("(no skills yet — add them as SKILL.md files in subdirectories here)");
+  });
+
+  it("skips malformed skills when rendering Skills section", () => {
+    const f = fixture("human_message");
+    const skillsDir = join(f.dataDir, f.agent.memory_ref.replace(/[\\/]memory$/, ""), "skills");
+    mkdirSync(skillsDir, { recursive: true });
+
+    // Valid skill
+    mkdirSync(join(skillsDir, "valid"), { recursive: true });
+    writeFileSync(
+      join(skillsDir, "valid", "SKILL.md"),
+      `---
+name: valid
+description: "Valid skill"
+---
+
+Content`,
+      "utf8"
+    );
+
+    // Malformed skill (missing closing ---)
+    mkdirSync(join(skillsDir, "malformed"), { recursive: true });
+    writeFileSync(
+      join(skillsDir, "malformed", "SKILL.md"),
+      `---
+name: malformed
+description: "No closing delimiter"
+
+Body`,
+      "utf8"
+    );
+
+    const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f }), f);
+    expect(text).toContain("- **valid** — Valid skill");
+    // Malformed skill should not appear
+    expect(text).not.toContain("malformed");
   });
 });

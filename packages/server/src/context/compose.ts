@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Agent, Run, Workstream } from "@foundry/core";
 import type { Store } from "@foundry/store";
+import { discoverSkills } from "../skills/discover.js";
 
 export interface ComposeArgs {
   store: Store;
@@ -38,6 +39,7 @@ export function composeContextText({ store, dataDir, run, workstream, agent }: C
     triggerSection(store, run, workstream, agent),
     pendingSection(store, agent),
     orgToolsSection(),
+    skillsSection(dataDir, agent),
   ].join("\n\n");
 }
 
@@ -171,6 +173,29 @@ function orgToolsSection(): string {
     "limits (budget, delegation depth) are enforced at the tool boundary and errors carry",
     "machine-readable codes you can react to.",
   ].join("\n");
+}
+
+function skillsSection(dataDir: string, agent: Agent): string {
+  // E11.4: skills directory and discovered skills (one line per skill, matching memory
+  // INDEX.md convention). Tolerant: skip invalid skills, render empty state plainly.
+  const skillsDir = resolve(dataDir, agent.memory_ref.replace(/[\\/]memory$/, ""), "skills");
+  const skills = discoverSkills(dataDir, agent.memory_ref);
+  const lines = [
+    "# Skills",
+    "",
+    `Your skills directory: \`${skillsDir}\``,
+  ];
+
+  if (skills.length === 0) {
+    lines.push("", "(no skills yet — add them as SKILL.md files in subdirectories here)");
+  } else {
+    lines.push("");
+    for (const skill of skills) {
+      lines.push(`- **${skill.name}** — ${skill.description}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function truncate(text: string, max: number): string {

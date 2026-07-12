@@ -14,7 +14,7 @@ import { createRuntime, type AdapterRegistry, type Runtime, type RunQueueLimits 
 import { composeContext } from "./context/compose.js";
 import { problemErrorHandler } from "./problem.js";
 import { createTokenRegistry, type TokenRegistry } from "./orgtools/tokens.js";
-import { commitAgentMemory } from "./memory/git.js";
+import { commitAgentMemory, commitAgentSkills } from "./memory/git.js";
 import { sweepExpiredQuestions } from "./sweep/expireMessages.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerWorkstreamRoutes } from "./routes/workstreams.js";
@@ -83,6 +83,8 @@ export function createServer(config: ServerConfig): FoundryServer {
     afterRun: ({ run, workstream, agent }) => {
       // E11.1: git-version the agent's memory after every run that touched it.
       commitAgentMemory(config.dataDir, agent.memory_ref, `run ${run.id}`);
+      // E11.4: git-version the agent's skills directory after every run.
+      commitAgentSkills(config.dataDir, agent.memory_ref, `run ${run.id}`);
 
       // E10.4 Rule 1: Crash loop detection — escalate when agent status becomes degraded.
       // `run` is the pre-execution object `execute()` resolved before the supervisor ran
