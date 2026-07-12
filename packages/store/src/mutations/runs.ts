@@ -109,6 +109,11 @@ export function transitionRunState(db: Db, mutate: Mutate, args: TransitionRunSt
           `UPDATE runs SET state = ?, result_json = COALESCE(?, result_json), engine_session_id = COALESCE(?, engine_session_id), started_at = COALESCE(started_at, ?), ended_at = COALESCE(?, ended_at) WHERE id = ?`
         )
         .run(args.to, toJson(args.result ?? null), args.engineSessionId ?? null, startedAt, endedAt, args.id);
+      if (args.result) {
+        tx.db
+          .prepare(`INSERT OR REPLACE INTO runs_fts (id, result_json) VALUES (?, ?)`)
+          .run(args.id, toJson(args.result));
+      }
     },
     events: [
       {

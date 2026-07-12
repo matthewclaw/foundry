@@ -48,6 +48,9 @@ export function createWorkstream(mutate: Mutate, input: CreateWorkstreamInput): 
           toJson(input.budget),
           now
         );
+      tx.db
+        .prepare(`INSERT INTO workstreams_fts (id, title, goal_md) VALUES (?, ?, ?)`)
+        .run(id, input.title, input.goal_md);
       return {
         id,
         agent_id: input.agent_id,
