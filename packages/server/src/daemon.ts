@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { createServer } from "./server.js";
 import { createFakeAdapter, loadScenario } from "@foundry/adapter-fake";
+import { createClaudeCodeAdapter } from "@foundry/adapter-claude-code";
 
 interface Config {
   dataDir: string;
@@ -54,6 +55,11 @@ async function main() {
     port: config.port || 4180,
     adapters: {
       fake: createFakeAdapter(loadScenario("happy-path")),
+      // Headless CLI has no TTY to approve tool calls interactively, so the first
+      // write/exec would otherwise abort the run (adapter README, E9.4 approvals
+      // aren't wired into the CLI's own prompts yet) — acceptEdits pre-approves file
+      // edits at the process level; Foundry-side approvals (E9.4) still gate the rest.
+      "claude-code": createClaudeCodeAdapter({ permissionMode: "acceptEdits" }),
     },
   });
 
