@@ -4,7 +4,7 @@
  * Charter edits PATCH /api/agents/:id {charter_md} and invalidate the agent query.
  */
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client.js";
 import type { AgentPageDto } from "../api/types.js";
@@ -74,6 +74,91 @@ function CharterSection({ agentId, charter }: { agentId: string; charter: AgentP
   );
 }
 
+function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [title, setTitle] = useState("");
+  const [goal, setGoal] = useState("");
+  const [repoPath, setRepoPath] = useState("");
+  const create = useMutation({
+    mutationFn: () =>
+      apiClient.createWorkstream({
+        agent_id: agentId,
+        title,
+        goal_md: goal,
+        // The runtime only ever reads `repo_path` off a git_worktree ref — it derives
+        // its own worktree location and branch (E4.4) — so worktree_path/branch here
+        // are schema-required placeholders, not settings that do anything.
+        workspace_ref: repoPath.trim()
+          ? { kind: "git_worktree", repo_path: repoPath.trim(), worktree_path: repoPath.trim(), branch: "main" }
+          : undefined,
+      }),
+    onSuccess: (ws) => {
+      void queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
+      onDone();
+      navigate(`/workstreams/${ws.id}`);
+    },
+  });
+
+  return (
+    <form
+      className="bg-white border border-gray-200 rounded-lg p-4 mb-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (title.trim()) create.mutate();
+      }}
+    >
+      <h2 className="font-semibold text-gray-800 mb-2 text-sm">New workstream</h2>
+      <input
+        aria-label="Workstream title"
+        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        placeholder="Title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        disabled={create.isPending}
+      />
+      <textarea
+        aria-label="Goal"
+        className="w-full h-16 border border-gray-300 rounded p-2 text-sm mb-2"
+        placeholder="Goal (what should the agent accomplish?)"
+        value={goal}
+        onChange={(e) => setGoal(e.target.value)}
+        disabled={create.isPending}
+      />
+      <input
+        aria-label="Repo path"
+        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        placeholder="Repo folder path (optional — e.g. C:\repos\my-project)"
+        value={repoPath}
+        onChange={(e) => setRepoPath(e.target.value)}
+        disabled={create.isPending}
+      />
+      {repoPath.trim() && (
+        <p className="text-xs text-gray-500 mb-2">
+          The agent gets an isolated git worktree of this repo for this workstream's runs.
+        </p>
+      )}
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+          disabled={create.isPending || !title.trim()}
+        >
+          {create.isPending ? "Creating…" : "Create workstream"}
+        </button>
+        <button type="button" className="text-sm text-gray-500" onClick={onDone}>
+          Cancel
+        </button>
+        {create.error && (
+          <span className="text-xs text-red-600">
+            {create.error instanceof Error ? create.error.message : String(create.error)}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}
+
 export default function AgentPage() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, error } = useQuery({
@@ -81,6 +166,7 @@ export default function AgentPage() {
     queryFn: () => apiClient.getAgent(id!),
     enabled: !!id,
   });
+  const [showNewWorkstream, setShowNewWorkstream] = useState(false);
 
   if (isLoading) return <div className="p-6 text-gray-500">Loading agent…</div>;
   if (error)
@@ -102,7 +188,18 @@ export default function AgentPage() {
       <CharterSection agentId={data.agent.id} charter={data.charter} />
 
       <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-        <h2 className="font-semibold text-gray-800 mb-2">Workstreams</h2>
+        <div className="flex items-center mb-2">
+          <h2 className="font-semibold text-gray-800">Workstreams</h2>
+          <button
+            className="ml-auto text-sm text-blue-700 hover:underline"
+            onClick={() => setShowNewWorkstream((s) => !s)}
+          >
+            {showNewWorkstream ? "Cancel" : "+ New workstream"}
+          </button>
+        </div>
+        {showNewWorkstream && (
+          <NewWorkstreamForm agentId={data.agent.id} onDone={() => setShowNewWorkstream(false)} />
+        )}
         {data.workstreams.length === 0 ? (
           <p className="text-sm text-gray-500">None.</p>
         ) : (

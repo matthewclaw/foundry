@@ -15,6 +15,30 @@ const json = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+export interface CreateAgentBody {
+  name: string;
+  role: string;
+  team_id?: string | null;
+  charter_md: string;
+  engine: { id: string; config?: unknown };
+}
+
+export interface CreateTeamBody {
+  name: string;
+  description?: string;
+}
+
+export type WorkspaceRefBody =
+  | { kind: "plain_dir"; path: string }
+  | { kind: "git_worktree"; repo_path: string; worktree_path: string; branch: string };
+
+export interface CreateWorkstreamBody {
+  agent_id: string;
+  title: string;
+  goal_md: string;
+  workspace_ref?: WorkspaceRefBody;
+}
+
 export const apiClient = {
   getOrg: () => request<OrgView>("/org"),
   getAgent: (id: string) => request<AgentPageDto>(`/agents/${id}`),
@@ -24,10 +48,14 @@ export const apiClient = {
   getTaskTree: (taskId: string) => request<TreeView>(`/tasks/${taskId}/tree`),
   patchAgent: (id: string, body: { charter_md: string }) =>
     request<unknown>(`/agents/${id}`, json("PATCH", body)),
-  postWorkstreamMessage: (workstreamId: string, body: { kind: "redirect"; body_md: string }) =>
+  postWorkstreamMessage: (workstreamId: string, body: { kind: "message" | "redirect"; body_md: string }) =>
     request<{ message_id: string; run_id: string }>(`/workstreams/${workstreamId}/messages`, json("POST", body)),
   grantApproval: (id: string, note_md?: string) =>
     request<unknown>(`/approvals/${id}/grant`, json("POST", { note_md })),
   denyApproval: (id: string, reason?: string) =>
     request<unknown>(`/approvals/${id}/deny`, json("POST", { reason })),
+  createAgent: (body: CreateAgentBody) => request<{ id: string }>("/agents", json("POST", body)),
+  createTeam: (body: CreateTeamBody) => request<{ id: string; name: string }>("/teams", json("POST", body)),
+  createWorkstream: (body: CreateWorkstreamBody) =>
+    request<{ id: string }>("/workstreams", json("POST", { ...body, budget: {} })),
 };

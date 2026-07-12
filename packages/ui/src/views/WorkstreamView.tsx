@@ -23,6 +23,19 @@ function payloadSummary(payload: unknown): string {
   return s.length > 120 ? `${s.slice(0, 120)}…` : s;
 }
 
+/** Formatted view keeps only the tool calls (their start) — the operational events
+ * (queued/started/usage-delta/etc.) are already reflected in the header badges. */
+function formattedToolCalls(events: TimelineRunEntry["events"]): TimelineRunEntry["events"] {
+  return events.filter((e) => e.type === "run_tool_call" && (e.payload as { phase?: string } | null)?.phase === "start");
+}
+
+function formatToolArgs(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  return Object.entries(input as Record<string, unknown>)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .join(", ");
+}
+
 function RunCard({
   entry,
   liveText,
@@ -33,11 +46,13 @@ function RunCard({
   defaultExpanded: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [view, setView] = useState<"raw" | "formatted">("raw");
   const { run } = entry;
   const cost = run.usage?.cost_usd;
   const isLive = liveText !== undefined && RUN_NONTERMINAL_STATES.has(run.state);
+  const text = isLive ? liveText : entry.transcriptText;
 
-  // A run that goes live after mount (e.g. a redirect just enqueued one) should pop
+  // A run that goes live after mount (e.g. a message just enqueued one) should pop
   // open on its own — don't make the user know to click it.
   useEffect(() => {
     if (isLive) setExpanded(true);
@@ -45,9 +60,14 @@ function RunCard({
 
   return (
     <div data-testid="run-card" className="bg-white border border-gray-200 rounded-lg mb-2 overflow-hidden">
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setExpanded((e) => !e)}
-        className="w-full px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-50"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") setExpanded((v) => !v);
+        }}
+        className="w-full px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-50 cursor-pointer"
       >
         <span className="font-semibold text-gray-800 text-sm">Run #{run.seq}</span>
         <span className="text-xs text-gray-500">{run.trigger}</span>
@@ -60,11 +80,33 @@ function RunCard({
         {entry.transcriptSource === "none" && (
           <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">limited engine detail</span>
         )}
-        <span className="ml-auto text-gray-400">{expanded ? "−" : "+"}</span>
-      </button>
+        <div className="ml-auto inline-flex rounded border border-gray-300 overflow-hidden text-xs">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setView("raw");
+            }}
+            className={`px-2 py-0.5 ${view === "raw" ? "bg-gray-800 text-white" : "bg-white text-gray-600"}`}
+          >
+            Raw
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setView("formatted");
+            }}
+            className={`px-2 py-0.5 ${view === "formatted" ? "bg-gray-800 text-white" : "bg-white text-gray-600"}`}
+          >
+            Formatted
+          </button>
+        </div>
+        <span className="text-gray-400">{expanded ? "−" : "+"}</span>
+      </div>
       {expanded && (
         <div className="px-4 py-3 border-t border-gray-100">
-          {entry.events.length > 0 && (
+          {view === "raw" && entry.events.length > 0 && (
             <ul className="mb-3 space-y-1">
               {entry.events.map((e) => (
                 <li key={e.seq} className="text-xs text-gray-700 font-mono">
@@ -73,21 +115,43 @@ function RunCard({
               ))}
             </ul>
           )}
-          {isLive ? (
-            <div>
-              <div className="text-xs text-green-700 mb-1">live output</div>
-              <pre className="whitespace-pre-wrap text-xs bg-gray-900 text-green-400 border border-gray-800 rounded p-2 overflow-x-auto font-mono">
-                {liveText || "…"}
-                <span className="animate-pulse">▊</span>
-              </pre>
-            </div>
-          ) : entry.transcriptText !== null ? (
-            <div>
-              <div className="text-xs text-gray-500 mb-1">transcript ({entry.transcriptSource})</div>
-              <pre className="whitespace-pre-wrap text-xs bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto">
-                {entry.transcriptText}
-              </pre>
-            </div>
+          {view === "formatted" && formattedToolCalls(entry.events).length > 0 && (
+            <ul className="mb-3 space-y-1">
+              {formattedToolCalls(entry.events).map((e) => {
+                const p = e.payload as { name?: string; detail?: { input?: unknown } } | null;
+                const argSummary = p?.detail?.input ? formatToolArgs(p.detail.input) : "";
+                return (
+                  <li key={e.seq} className="text-xs text-gray-600">
+                    🔧 <span className="font-medium text-gray-800">{p?.name ?? "tool"}</span>
+                    {argSummary && <span className="text-gray-400"> — {argSummary}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {text !== null && text !== undefined ? (
+            view === "raw" ? (
+              <div>
+                <div className={`text-xs mb-1 ${isLive ? "text-green-700" : "text-gray-500"}`}>
+                  {isLive ? "live output" : `transcript (${entry.transcriptSource})`}
+                </div>
+                <pre
+                  className={
+                    isLive
+                      ? "whitespace-pre-wrap text-xs bg-gray-900 text-green-400 border border-gray-800 rounded p-2 overflow-x-auto font-mono"
+                      : "whitespace-pre-wrap text-xs bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"
+                  }
+                >
+                  {text || "…"}
+                  {isLive && <span className="animate-pulse">▊</span>}
+                </pre>
+              </div>
+            ) : (
+              <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed bg-blue-50 border border-blue-100 rounded p-3">
+                {text || "…"}
+                {isLive && <span className="animate-pulse">▊</span>}
+              </div>
+            )
           ) : (
             <p className="text-xs text-amber-700">
               No transcript available — this engine reported limited detail for this run (capability degradation, ADR-003).
@@ -99,11 +163,13 @@ function RunCard({
   );
 }
 
-function RedirectComposer({ workstreamId }: { workstreamId: string }) {
+/** Send a message on this workstream — the first one starts the conversation, an
+ * intermediate one course-corrects a run already in flight; both just enqueue a run. */
+function MessageComposer({ workstreamId }: { workstreamId: string }) {
   const queryClient = useQueryClient();
   const [body, setBody] = useState("");
   const send = useMutation({
-    mutationFn: (body_md: string) => apiClient.postWorkstreamMessage(workstreamId, { kind: "redirect", body_md }),
+    mutationFn: (body_md: string) => apiClient.postWorkstreamMessage(workstreamId, { kind: "message", body_md }),
     onSuccess: () => {
       setBody("");
       void queryClient.invalidateQueries({ queryKey: ["timeline", workstreamId] });
@@ -118,11 +184,11 @@ function RedirectComposer({ workstreamId }: { workstreamId: string }) {
         if (body.trim()) send.mutate(body);
       }}
     >
-      <h2 className="font-semibold text-gray-800 mb-2 text-sm">Redirect</h2>
+      <h2 className="font-semibold text-gray-800 mb-2 text-sm">Message</h2>
       <textarea
-        aria-label="Redirect message"
+        aria-label="Message"
         className="w-full h-20 border border-gray-300 rounded p-2 text-sm"
-        placeholder="Course-correct this workstream…"
+        placeholder="Say something to this agent — this starts or continues the conversation…"
         value={body}
         onChange={(e) => setBody(e.target.value)}
         disabled={send.isPending}
@@ -133,7 +199,7 @@ function RedirectComposer({ workstreamId }: { workstreamId: string }) {
           className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
           disabled={send.isPending || !body.trim()}
         >
-          {send.isPending ? "Sending…" : "Send redirect"}
+          {send.isPending ? "Sending…" : "Send message"}
         </button>
         {send.data && <span className="text-xs text-gray-600">run enqueued: {send.data.run_id}</span>}
         {send.error && (
@@ -251,7 +317,7 @@ export default function WorkstreamView() {
           />
         ))
       )}
-      <RedirectComposer workstreamId={id!} />
+      <MessageComposer workstreamId={id!} />
     </div>
   );
 }

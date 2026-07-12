@@ -178,7 +178,7 @@ describe("WorkstreamView", () => {
     expect(screen.queryByText(/SHOULD NOT APPEAR/)).toBeNull();
   });
 
-  it("redirect composer POSTs {kind:'redirect'} and shows the returned run_id", async () => {
+  it("message composer POSTs {kind:'message'} and shows the returned run_id", async () => {
     vi.mocked(apiClient.postWorkstreamMessage).mockResolvedValue({
       message_id: "m1",
       run_id: "run-777",
@@ -186,17 +186,43 @@ describe("WorkstreamView", () => {
     renderView({ workstreamId: "ws1", runs: [] });
 
     await screen.findByText("No runs yet.");
-    fireEvent.change(screen.getByLabelText("Redirect message"), {
+    fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "Focus on the flaky test first." },
     });
-    fireEvent.click(screen.getByText("Send redirect"));
+    fireEvent.click(screen.getByText("Send message"));
 
     await waitFor(() =>
       expect(apiClient.postWorkstreamMessage).toHaveBeenCalledWith("ws1", {
-        kind: "redirect",
+        kind: "message",
         body_md: "Focus on the flaky test first.",
       })
     );
     expect(await screen.findByText(/run enqueued: run-777/)).toBeTruthy();
+  });
+
+  it("toggles a run card between raw (default) and formatted views", async () => {
+    const toolRun: TimelineRunEntry = {
+      run: { id: "run4", seq: 4, trigger: "human_message", state: "completed", started_at: "2026-07-01T10:00:00Z", ended_at: "2026-07-01T10:05:00Z", usage: null },
+      events: [
+        { seq: 20, type: "run_tool_call", payload: { name: "Glob", phase: "start", detail: { input: { pattern: "README.md" } } } },
+        { seq: 21, type: "run_tool_call", payload: { name: "Glob", phase: "end", detail: {} } },
+      ],
+      transcriptText: "Done.",
+      transcriptSource: "live",
+    };
+    renderView({ workstreamId: "ws1", runs: [toolRun] });
+
+    await screen.findByText("Run #4");
+    // raw is the default: shows both raw events (start + end) verbatim
+    expect(screen.getAllByText(/run_tool_call/)).toHaveLength(2);
+
+    fireEvent.click(screen.getByText("Formatted"));
+    // formatted: no raw event JSON, one friendly tool-call line instead (start only)
+    expect(screen.queryByText(/run_tool_call/)).toBeNull();
+    expect(screen.getByText("Glob")).toBeTruthy();
+    expect(screen.getByText(/pattern: "README.md"/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Raw"));
+    expect(screen.getAllByText(/run_tool_call/)).toHaveLength(2);
   });
 });

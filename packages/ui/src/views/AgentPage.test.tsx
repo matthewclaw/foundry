@@ -4,13 +4,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AgentPageDto } from "../api/types.js";
 import AgentPage from "./AgentPage.js";
 
+function WorkstreamPlaceholder() {
+  const { id } = useParams<{ id: string }>();
+  return <div>workstream page: {id}</div>;
+}
+
 vi.mock("../api/client.js", () => ({
-  apiClient: { getAgent: vi.fn(), patchAgent: vi.fn() },
+  apiClient: { getAgent: vi.fn(), patchAgent: vi.fn(), createWorkstream: vi.fn() },
 }));
 import { apiClient } from "../api/client.js";
 
@@ -40,6 +45,7 @@ function renderPage() {
       <MemoryRouter initialEntries={["/agents/ag1"]}>
         <Routes>
           <Route path="/agents/:id" element={<AgentPage />} />
+          <Route path="/workstreams/:id" element={<WorkstreamPlaceholder />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -84,5 +90,52 @@ describe("AgentPage", () => {
     );
     // invalidation → refetch of ["agent", id]
     await waitFor(() => expect(vi.mocked(apiClient.getAgent).mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it("creates a workstream with a repo folder and navigates to it", async () => {
+    vi.mocked(apiClient.createWorkstream).mockResolvedValue({ id: "ws-new" });
+    renderPage();
+
+    await screen.findByText("Orbit Backend Engineer");
+    fireEvent.click(screen.getByText("+ New workstream"));
+    fireEvent.change(screen.getByLabelText("Workstream title"), { target: { value: "Fix the bug" } });
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "Investigate and fix it" } });
+    fireEvent.change(screen.getByLabelText("Repo path"), { target: { value: "C:\\repos\\my-project" } });
+    fireEvent.click(screen.getByText("Create workstream"));
+
+    await waitFor(() =>
+      expect(apiClient.createWorkstream).toHaveBeenCalledWith({
+        agent_id: "ag1",
+        title: "Fix the bug",
+        goal_md: "Investigate and fix it",
+        workspace_ref: {
+          kind: "git_worktree",
+          repo_path: "C:\\repos\\my-project",
+          worktree_path: "C:\\repos\\my-project",
+          branch: "main",
+        },
+      })
+    );
+    // navigates to the new workstream's timeline
+    expect(await screen.findByText("workstream page: ws-new")).toBeTruthy();
+  });
+
+  it("creates a workstream without a repo path — no workspace_ref sent", async () => {
+    vi.mocked(apiClient.createWorkstream).mockResolvedValue({ id: "ws-new2" });
+    renderPage();
+
+    await screen.findByText("Orbit Backend Engineer");
+    fireEvent.click(screen.getByText("+ New workstream"));
+    fireEvent.change(screen.getByLabelText("Workstream title"), { target: { value: "General work" } });
+    fireEvent.click(screen.getByText("Create workstream"));
+
+    await waitFor(() =>
+      expect(apiClient.createWorkstream).toHaveBeenCalledWith({
+        agent_id: "ag1",
+        title: "General work",
+        goal_md: "",
+        workspace_ref: undefined,
+      })
+    );
   });
 });

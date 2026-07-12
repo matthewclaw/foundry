@@ -5,7 +5,7 @@
  * teams with only idle/active members render collapsed to one calm line.
  */
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client.js";
 import type { AgentStatus, OrgViewAgent, OrgViewTeam } from "../api/types.js";
 
@@ -96,11 +96,170 @@ function TeamSection({ name, status, agents }: { name: string; status: AgentStat
   );
 }
 
+function NewTeamForm({ onDone }: { onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const create = useMutation({
+    mutationFn: () => apiClient.createTeam({ name, description }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["org"] });
+      onDone();
+    },
+  });
+
+  return (
+    <form
+      className="bg-white border border-gray-200 rounded-lg p-4 mb-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (name.trim()) create.mutate();
+      }}
+    >
+      <h2 className="font-semibold text-gray-800 mb-2 text-sm">New team</h2>
+      <input
+        aria-label="Team name"
+        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        placeholder="Team name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        disabled={create.isPending}
+      />
+      <input
+        aria-label="Team description"
+        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        placeholder="Description (optional)"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        disabled={create.isPending}
+      />
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+          disabled={create.isPending || !name.trim()}
+        >
+          {create.isPending ? "Creating…" : "Create team"}
+        </button>
+        <button type="button" className="text-sm text-gray-500" onClick={onDone}>
+          Cancel
+        </button>
+        {create.error && (
+          <span className="text-xs text-red-600">
+            {create.error instanceof Error ? create.error.message : String(create.error)}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}
+
+function NewAgentForm({ teams, onDone }: { teams: OrgViewTeam[]; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [teamId, setTeamId] = useState("");
+  const [charter, setCharter] = useState("");
+  const [engine, setEngine] = useState("fake");
+  const create = useMutation({
+    mutationFn: () =>
+      apiClient.createAgent({
+        name,
+        role,
+        team_id: teamId || null,
+        charter_md: charter || `# ${name}`,
+        engine: { id: engine },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["org"] });
+      onDone();
+    },
+  });
+
+  return (
+    <form
+      className="bg-white border border-gray-200 rounded-lg p-4 mb-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (name.trim() && role.trim()) create.mutate();
+      }}
+    >
+      <h2 className="font-semibold text-gray-800 mb-2 text-sm">New agent</h2>
+      <input
+        aria-label="Agent name"
+        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        placeholder="Name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        disabled={create.isPending}
+      />
+      <input
+        aria-label="Agent role"
+        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        placeholder="Role (e.g. Backend Engineer)"
+        value={role}
+        onChange={(e) => setRole(e.target.value)}
+        disabled={create.isPending}
+      />
+      <select
+        aria-label="Team"
+        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        value={teamId}
+        onChange={(e) => setTeamId(e.target.value)}
+        disabled={create.isPending}
+      >
+        <option value="">Unassigned</option>
+        {teams.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </select>
+      <textarea
+        aria-label="Charter"
+        className="w-full h-16 border border-gray-300 rounded p-2 text-sm mb-2"
+        placeholder="Charter (markdown, optional — defaults to a stub)"
+        value={charter}
+        onChange={(e) => setCharter(e.target.value)}
+        disabled={create.isPending}
+      />
+      <select
+        aria-label="Engine"
+        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        value={engine}
+        onChange={(e) => setEngine(e.target.value)}
+        disabled={create.isPending}
+      >
+        <option value="fake">Fake (scripted demo playback, free)</option>
+        <option value="claude-code">Claude Code (real CLI, real cost)</option>
+      </select>
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+          disabled={create.isPending || !name.trim() || !role.trim()}
+        >
+          {create.isPending ? "Creating…" : "Create agent"}
+        </button>
+        <button type="button" className="text-sm text-gray-500" onClick={onDone}>
+          Cancel
+        </button>
+        {create.error && (
+          <span className="text-xs text-red-600">
+            {create.error instanceof Error ? create.error.message : String(create.error)}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}
+
 export default function OrgView() {
   const { data: org, isLoading, error } = useQuery({
     queryKey: ["org"],
     queryFn: apiClient.getOrg,
   });
+  const [openForm, setOpenForm] = useState<"team" | "agent" | null>(null);
 
   if (isLoading) return <div className="p-6 text-gray-500">Loading organization…</div>;
   if (error)
@@ -109,7 +268,25 @@ export default function OrgView() {
 
   return (
     <div className="p-6 max-w-3xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-4">Organization</h1>
+      <div className="flex items-center mb-4">
+        <h1 className="text-2xl font-bold text-gray-900">Organization</h1>
+        <div className="ml-auto flex gap-2">
+          <button
+            className="px-3 py-1 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+            onClick={() => setOpenForm(openForm === "team" ? null : "team")}
+          >
+            + New team
+          </button>
+          <button
+            className="px-3 py-1 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+            onClick={() => setOpenForm(openForm === "agent" ? null : "agent")}
+          >
+            + New agent
+          </button>
+        </div>
+      </div>
+      {openForm === "team" && <NewTeamForm onDone={() => setOpenForm(null)} />}
+      {openForm === "agent" && <NewAgentForm teams={org.teams} onDone={() => setOpenForm(null)} />}
       {org.teams.map((team: OrgViewTeam) => (
         <TeamSection key={team.id} name={team.name} status={team.status} agents={team.agents} />
       ))}

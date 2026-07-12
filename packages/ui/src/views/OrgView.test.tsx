@@ -3,13 +3,13 @@
  * fixture with exception-first ordering.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { OrgView, OrgViewAgent, OrgViewTeam, AgentStatus } from "../api/types.js";
 import OrgViewComponent, { statusBadge } from "./OrgView.js";
 
 vi.mock("../api/client.js", () => ({
-  apiClient: { getOrg: vi.fn() },
+  apiClient: { getOrg: vi.fn(), createTeam: vi.fn(), createAgent: vi.fn() },
 }));
 import { apiClient } from "../api/client.js";
 
@@ -112,5 +112,47 @@ describe("OrgView", () => {
     await screen.findByText("Calm Team");
     // collapsed: header renders, agent rows do not
     expect(screen.queryAllByTestId("agent-row")).toHaveLength(0);
+  });
+
+  it("creates a team via the New team form", async () => {
+    vi.mocked(apiClient.getOrg).mockResolvedValue({ teams: [], unassignedAgents: [] });
+    vi.mocked(apiClient.createTeam).mockResolvedValue({ id: "team-new", name: "Platform" });
+    renderOrgView();
+
+    await screen.findByText("Organization");
+    fireEvent.click(screen.getByText("+ New team"));
+    fireEvent.change(screen.getByLabelText("Team name"), { target: { value: "Platform" } });
+    fireEvent.click(screen.getByText("Create team"));
+
+    await waitFor(() => expect(apiClient.createTeam).toHaveBeenCalledWith({ name: "Platform", description: "" }));
+    // form closes on success
+    await waitFor(() => expect(screen.queryByLabelText("Team name")).toBeNull());
+  });
+
+  it("creates an agent via the New agent form, defaulting to the fake engine", async () => {
+    const fixture: OrgView = {
+      teams: [{ id: "team-1" as OrgViewTeam["id"], name: "Platform", status: "idle", agents: [] }],
+      unassignedAgents: [],
+    };
+    vi.mocked(apiClient.getOrg).mockResolvedValue(fixture);
+    vi.mocked(apiClient.createAgent).mockResolvedValue({ id: "agent-new" });
+    renderOrgView();
+
+    await screen.findByText("Organization");
+    fireEvent.click(screen.getByText("+ New agent"));
+    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Orbit" } });
+    fireEvent.change(screen.getByLabelText("Agent role"), { target: { value: "Backend Engineer" } });
+    fireEvent.change(screen.getByLabelText("Team"), { target: { value: "team-1" } });
+    fireEvent.click(screen.getByText("Create agent"));
+
+    await waitFor(() =>
+      expect(apiClient.createAgent).toHaveBeenCalledWith({
+        name: "Orbit",
+        role: "Backend Engineer",
+        team_id: "team-1",
+        charter_md: "# Orbit",
+        engine: { id: "fake" },
+      })
+    );
   });
 });
