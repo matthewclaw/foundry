@@ -19,6 +19,7 @@ import AgentPage from "./views/AgentPage.js";
 import WorkstreamView from "./views/WorkstreamView.js";
 import Inbox from "./views/Inbox.js";
 import CostView from "./views/CostView.js";
+import TaskTreeView from "./views/TaskTreeView.js";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -97,6 +98,7 @@ export default function App() {
             <Route index element={<OrgView />} />
             <Route path="/agents/:id" element={<AgentPage />} />
             <Route path="/workstreams/:id" element={<WorkstreamView />} />
+            <Route path="/tasks/:id/tree" element={<TaskTreeView />} />
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/cost" element={<CostView />} />
           </Route>

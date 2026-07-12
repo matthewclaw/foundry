@@ -1,5 +1,5 @@
 /** E7.1/E7.3/E7.4 — Typed fetch helpers for the API (contracts.md). Throw on !ok. */
-import type { OrgView, InboxItem, AgentPageDto, Timeline, CostReport } from "./types.js";
+import type { OrgView, InboxItem, AgentPageDto, Timeline, CostReport, TreeView } from "./types.js";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, init);
@@ -21,6 +21,7 @@ export const apiClient = {
   getInbox: () => request<InboxItem[]>("/inbox"),
   getTimeline: (workstreamId: string) => request<Timeline>(`/workstreams/${workstreamId}/timeline`),
   getCost: (scope?: string) => request<CostReport>(`/cost${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`),
+  getTaskTree: (taskId: string) => request<TreeView>(`/tasks/${taskId}/tree`),
   patchAgent: (id: string, body: { charter_md: string }) =>
     request<unknown>(`/agents/${id}`, json("PATCH", body)),
   postWorkstreamMessage: (workstreamId: string, body: { kind: "redirect"; body_md: string }) =>

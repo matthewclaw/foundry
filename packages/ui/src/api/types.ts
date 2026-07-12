@@ -121,3 +121,31 @@ export interface CostReport {
   limit_tokens: number | null;
   breakdown: CostBreakdownEntry[];
 }
+
+/** E10.2 — Task tree view (GET /api/tasks/:id/tree). */
+export type TaskState = "pending" | "in_progress" | "blocked" | "delivered" | "done" | "rejected" | "cancelled";
+
+export interface TaskDto {
+  id: string;
+  parent_task_id: string | null;
+  root_task_id: string;
+  depth: number;
+  delegator_actor_id: string;
+  assignee_agent_id: string;
+  spec_md: string;
+  acceptance_criteria_md: string;
+  budget: { limit_usd: number | null; limit_tokens: number | null; spent_usd: number; spent_tokens: number };
+  state: TaskState;
+  rejection_count: number;
+  created_at: string;
+  closed_at: string | null;
+}
+
+export interface TreeNode {
+  task: TaskDto;
+  children: TreeNode[];
+}
+
+export interface TreeView {
+  root: TreeNode | undefined;
+}
