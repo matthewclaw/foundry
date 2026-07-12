@@ -79,6 +79,11 @@ export interface TimelineRunEntry {
     started_at: string | null;
     ended_at: string | null;
     usage: { cost_usd?: number; tokens_in?: number; tokens_out?: number } | null;
+    /** engine_session_id — consecutive runs sharing one are the same conversation
+     * (see groupIntoConversations in WorkstreamView.tsx). */
+    engine_session_id?: string | null;
+    /** User-set display name for the conversation this run belongs to. */
+    title?: string | null;
   };
   events: { seq: number; type: string; payload: unknown }[];
   transcriptText: string | null;

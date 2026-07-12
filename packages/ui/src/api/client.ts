@@ -48,8 +48,12 @@ export const apiClient = {
   getTaskTree: (taskId: string) => request<TreeView>(`/tasks/${taskId}/tree`),
   patchAgent: (id: string, body: { charter_md: string }) =>
     request<unknown>(`/agents/${id}`, json("PATCH", body)),
-  postWorkstreamMessage: (workstreamId: string, body: { kind: "message" | "redirect"; body_md: string }) =>
-    request<{ message_id: string; run_id: string }>(`/workstreams/${workstreamId}/messages`, json("POST", body)),
+  postWorkstreamMessage: (
+    workstreamId: string,
+    body: { kind: "message" | "redirect"; body_md: string; resume?: boolean }
+  ) => request<{ message_id: string; run_id: string }>(`/workstreams/${workstreamId}/messages`, json("POST", body)),
+  setRunTitle: (runId: string, title: string) =>
+    request<unknown>(`/runs/${runId}/title`, json("PATCH", { title })),
   grantApproval: (id: string, note_md?: string) =>
     request<unknown>(`/approvals/${id}/grant`, json("POST", { note_md })),
   denyApproval: (id: string, reason?: string) =>
