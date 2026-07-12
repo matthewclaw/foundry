@@ -59,24 +59,22 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   function acquireGitWorktree(workstreamId: WorkstreamId, repoPath: string): AcquireResult {
     const worktreePath = getWorktreePath(workstreamId);
 
-    // Check cache for existing worktree
     const cached = worktreePathCache.get(workstreamId);
-    if (cached) {
-      if (cached.repoPath !== repoPath) {
-        return {
-          ok: false,
-          refusalReason: `workstream already has a worktree for repo ${cached.repoPath}, cannot switch to ${repoPath}`,
-        };
-      }
+    if (cached && cached.repoPath !== repoPath) {
+      return {
+        ok: false,
+        refusalReason: `workstream already has a worktree for repo ${cached.repoPath}, cannot switch to ${repoPath}`,
+      };
+    }
 
-      // Check if worktree directory exists and is clean
-      if (!existsSync(worktreePath)) {
-        return {
-          ok: false,
-          refusalReason: `worktree directory does not exist: ${worktreePath}`,
-        };
-      }
-
+    // The directory on disk — not the in-memory cache — is the real source of truth
+    // for "has this workstream already been provisioned": the cache is empty after
+    // every control-plane restart, but `git worktree add` still fails if the target
+    // directory is already there from before the restart. Without this check, every
+    // workstream's first acquire after a restart refused with "failed to create
+    // worktree ... already exists", which broke a normal back-and-forth conversation
+    // the moment the daemon had ever been restarted in between messages.
+    if (existsSync(worktreePath)) {
       if (isWorktreeDirty(worktreePath)) {
         store.commands.transitionWorkstreamState({
           id: workstreamId,
@@ -90,13 +88,14 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         };
       }
 
+      worktreePathCache.set(workstreamId, { repoPath, worktreePath });
       return {
         ok: true,
         workspaceDir: worktreePath,
       };
     }
 
-    // Create new worktree
+    // First time this workstream has needed a worktree — create it.
     try {
       execFileSync("git", ["worktree", "add", worktreePath, "HEAD"], {
         cwd: repoPath,

@@ -196,4 +196,24 @@ describe("createWorkspaceManager — E4.4", () => {
     expect(result2.ok).toBe(true);
     expect(result2.workspaceDir).toBe(path1);
   });
+
+  it("survives a control-plane restart: a fresh manager instance reuses the worktree already on disk", () => {
+    testDir = createTempDir();
+    const store = createTestStore();
+    const repoPath = createTestRepo();
+    const agentId = bootstrapAgent(store);
+
+    const ws = makeWorkstream(store, agentId, "Restart test");
+
+    const manager1 = createWorkspaceManager({ store, worktreesRoot: testDir });
+    const result1 = manager1.acquireGitWorktree(ws, repoPath);
+    expect(result1.ok).toBe(true);
+
+    // Simulate a daemon restart: a brand-new manager, empty in-memory cache, but the
+    // worktree directory from manager1 is still there on disk.
+    const manager2 = createWorkspaceManager({ store, worktreesRoot: testDir });
+    const result2 = manager2.acquireGitWorktree(ws, repoPath);
+    expect(result2.ok).toBe(true);
+    expect(result2.workspaceDir).toBe(result1.workspaceDir);
+  });
 });

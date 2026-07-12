@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentId, WorkstreamId } from "@foundry/core";
 import { createStore, type Store } from "@foundry/store";
 import { createFakeAdapter, loadScenario } from "@foundry/adapter-fake";
-import type { ExecutionAdapter } from "@foundry/adapter-api";
+import type { ExecutionAdapter, RunSpec } from "@foundry/adapter-api";
 import { createRunSupervisor } from "./supervisor.js";
 
 /** Wraps an adapter to count cancel() calls — proves a watchdog actually cancels the
@@ -25,6 +25,38 @@ function spyOnCancel(inner: ExecutionAdapter): { adapter: ExecutionAdapter; canc
         cancelCalls++;
         await inner.cancel(handle);
       },
+    },
+  };
+}
+
+/** Wraps an adapter to observe whether start() or resume() was actually called — the
+ * fake adapter's resume() just delegates to start(), so a plain execution-outcome
+ * assertion can't distinguish "cold-started" from "resumed the prior session." */
+function spyOnStartResume(inner: ExecutionAdapter): {
+  adapter: ExecutionAdapter;
+  startCalls: () => number;
+  resumeCalls: () => (RunSpec & { sessionRef: string })[];
+} {
+  let startCalls = 0;
+  const resumeCalls: (RunSpec & { sessionRef: string })[] = [];
+  return {
+    startCalls: () => startCalls,
+    resumeCalls: () => resumeCalls,
+    adapter: {
+      id: inner.id,
+      capabilities: () => inner.capabilities(),
+      start: (spec) => {
+        startCalls++;
+        return inner.start(spec);
+      },
+      resume: inner.resume
+        ? (spec) => {
+            resumeCalls.push(spec);
+            return inner.resume!(spec);
+          }
+        : undefined,
+      cancel: (handle) => inner.cancel(handle),
+      events: (handle) => inner.events(handle),
     },
   };
 }
@@ -112,6 +144,56 @@ describe("createRunSupervisor — E4.2", () => {
       "run_output_delta",
       "run_completed",
     ]);
+  });
+
+  it("conversation continuity: a second message on the same workstream resumes the prior session instead of cold-starting", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Chat");
+
+    const spy = spyOnStartResume(createFakeAdapter(loadScenario("happy-path")));
+    const supervisor = createRunSupervisor({ store, adapters: { fake: spy.adapter } });
+
+    const run1 = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/1/context.md",
+      engine_id: "fake",
+    });
+    await supervisor.execute(run1, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/1/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "happy-path" },
+    });
+    expect(store.runs.get(run1.id)?.engine_session_id).toBe("sess-happy-path");
+    expect(spy.startCalls()).toBe(1);
+    expect(spy.resumeCalls()).toHaveLength(0);
+
+    const run2 = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/2/context.md",
+      engine_id: "fake",
+    });
+    await supervisor.execute(run2, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/2/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "happy-path" },
+    });
+
+    // Second run resumed the first run's session — start() was never called again.
+    expect(spy.startCalls()).toBe(1);
+    expect(spy.resumeCalls()).toHaveLength(1);
+    expect(spy.resumeCalls()[0]!.sessionRef).toBe("sess-happy-path");
+    expect(store.runs.get(run2.id)?.state).toBe("completed");
   });
 
   it("F15: a malformed EngineEvent from a buggy adapter fails the run safely, not the org state", async () => {

@@ -189,7 +189,16 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
       limits: { wallClockMs: job.wallClockMs ?? opts.defaultWallClockMs ?? DEFAULT_WALL_CLOCK_MS },
     };
 
-    const handle = await adapter.start(spec);
+    // Conversation continuity: if the engine supports session resume and the most
+    // recent prior run on this workstream ended with a session to resume into,
+    // continue that session instead of cold-starting a fresh one with no memory
+    // beyond the "Prior runs" summary in the composed context (compose.ts). This is
+    // the same adapter.resume() as E4.6's crash recovery, just triggered by "another
+    // message arrived" rather than "the process died mid-run."
+    const priorSessionId = findResumableSessionId(job.workstreamId, run.id, adapter);
+    const handle = priorSessionId
+      ? await adapter.resume!({ ...spec, sessionRef: priorSessionId })
+      : await adapter.start(spec);
     // F7: while this stream is live, the engine process (if the adapter spawned a real
     // one) is registered so a control-plane restart can sweep it as an orphan (E4.5).
     if (opts.pids && typeof handle.pid === "number") opts.pids.register(run.id, handle.pid);
@@ -252,6 +261,20 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
       return "interrupted";
     }
     return undefined;
+  }
+
+  /**
+   * Conversation continuity: the session id to resume into for a brand-new run on
+   * this workstream, if any. Distinct from attemptResume() below — that one resumes
+   * THIS run's own session after a crash; this one looks at the PREVIOUS (already
+   * ended) run's session so a new message continues the same engine conversation.
+   */
+  function findResumableSessionId(workstreamId: RunQueueJob["workstreamId"], currentRunId: Run["id"], adapter: ExecutionAdapter): string | undefined {
+    if (!adapter.capabilities().resume || !adapter.resume) return undefined;
+    const priorRuns = opts.store.runs
+      .list({ workstream_id: workstreamId })
+      .filter((r) => r.id !== currentRunId && r.ended_at !== null);
+    return priorRuns.at(-1)?.engine_session_id ?? undefined;
   }
 
   /**
