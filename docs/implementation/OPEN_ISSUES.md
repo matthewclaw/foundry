@@ -588,3 +588,32 @@ whatever revisits F6 (budget_exhausted → task `blocked` → escalation, also n
 the *global* per-run `budgetCaps` watchdog cutoff in `supervisor.ts` exists and cuts a
 run off, but doesn't transition the task to `blocked(budget_exhausted)` or escalate,
 per doc-07's stated response for F6).
+
+---
+
+# Open Issues — raised during E11.4/E11.5 (skills dirs, FTS5 recall) implementation
+
+## 40. Claude Code native skill loading and agent-page skill display are unbuilt (E11.4)
+
+E11.4 shipped the server/store half only: `SKILL.md` parsing (`packages/server/src/skills/parse.ts`),
+discovery (`skills/discover.ts`), a composed-context "# Skills" section, and git
+versioning (`commitAgentSkills`, mirroring E11.1's memory pattern). Two roadmap-AC
+items are deliberately not built:
+- **Claude Code native skill loading** — the reference adapter (`packages/adapter-claude-code`)
+  lives on a separate, unmerged branch (`phase-2/claude-code`), and (same posture as
+  #38's permission-hook gap) the exact directory convention or flag the *real* CLI uses
+  to discover a skills directory at a non-default location needs live verification, not
+  a guess. Left for whoever next touches that branch.
+- **Agent page skill display** ("browsable/editable, per 05") — the UI lives on another
+  separate branch (`phase-2/ui`) that this worktree doesn't have at all. The server-side
+  discovery function (`discoverSkills`) is ready to back a query endpoint whenever the
+  UI lane picks this up; no HTTP route exists for it yet either.
+
+## 41. FTS5 search excerpts are plain substrings, not `snippet()`-highlighted
+
+`SearchHit.excerpt` is still `text.slice(0, 200)` (unchanged from the pre-FTS5 LIKE
+implementation) rather than FTS5's own `snippet()` function, which would bold/mark the
+actual matched terms within context. Deliberately deferred as a nice-to-have, not
+required by doc-05's AC ("Results carry refs... so recall is auditable") — the ref
+already makes every hit traceable back to its source; a nicer excerpt is a follow-up,
+not a gap.
