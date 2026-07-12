@@ -5,7 +5,8 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { CreateAgentRequestSchema } from "@foundry/core";
 
@@ -319,7 +320,21 @@ function locateDaemonScript(): string {
     return envPath;
   }
 
-  // Second: walk up from cwd looking for node_modules/@foundry/server/dist/daemon.js
+  // Second: relative to this CLI script's own install location — the only strategy
+  // that works regardless of the caller's cwd (the cwd-based strategies below only
+  // find the daemon when invoked from inside this monorepo's own working tree; a
+  // `foundry` run from an arbitrary directory, the realistic "installed CLI" case,
+  // needs to find its sibling @foundry/server package next to itself, not next to
+  // whatever directory the user happened to be in).
+  const cliDir = dirname(fileURLToPath(import.meta.url));
+  // Two levels up from `.../cli/dist` reaches the common parent of sibling packages —
+  // `packages/` in this monorepo's own layout, or `node_modules/@foundry/` for a real
+  // npm install (both @foundry/cli and @foundry/server scoped under the same parent) —
+  // then back down into server's sibling dist folder.
+  const siblingDaemonPath = join(cliDir, "..", "..", "server", "dist", "daemon.js");
+  if (existsSync(siblingDaemonPath)) return siblingDaemonPath;
+
+  // Third: walk up from cwd looking for node_modules/@foundry/server/dist/daemon.js
   let current = process.cwd();
   while (current !== "/") {
     const path = join(current, "node_modules", "@foundry", "server", "dist", "daemon.js");
@@ -331,7 +346,7 @@ function locateDaemonScript(): string {
     current = parent;
   }
 
-  // Third: check packages/server/dist/daemon.js relative to repo root
+  // Fourth: check packages/server/dist/daemon.js relative to repo root
   // (This is a heuristic; we assume we're run from somewhere in the repo)
   const repoRoot = findRepoRoot();
   if (repoRoot) {
