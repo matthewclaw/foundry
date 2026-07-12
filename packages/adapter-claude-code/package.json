@@ -1,0 +1,31 @@
+{
+  "name": "@foundry/adapter-claude-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Foundry L2 reference engine adapter: drives the Claude Code CLI headlessly (stream-json). Depends: adapter-api, core.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "fixtures"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@foundry/adapter-api": "workspace:*",
+    "@foundry/core": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}
