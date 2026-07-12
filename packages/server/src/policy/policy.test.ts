@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Agent, Policy, PolicyError } from "@foundry/core";
+import { DEFAULT_POLICY } from "@foundry/core";
 import { createServer, type FoundryServer } from "../server.js";
 import { checkDelegation, checkRejection, resolvePolicy, resolveRouting } from "./policy.js";
 
@@ -267,5 +268,183 @@ describe("checkRejection — F12 rejected-work loop", () => {
     expect(checkRejection({ rejection_count: 1 }, policy)).toBeNull();
     expect(checkRejection({ rejection_count: 2 }, policy)?.code).toBe("max_rejections_exceeded");
     expect(checkRejection({ rejection_count: 3 }, policy)?.code).toBe("max_rejections_exceeded");
+  });
+});
+
+describe("budget conservation + depth cap property test — E8.2", () => {
+  it("random delegation trees preserve budget invariant at every node and respect depth cap", () => {
+    const human = server.store.commands.getOrCreateHumanActor();
+    const workers = Array.from({ length: 3 }, (_, i) => makeAgent({ name: `Worker-${i}` }));
+
+    // Run 30 random trees
+    for (let treeIdx = 0; treeIdx < 30; treeIdx++) {
+      const createdTasks: Array<{ id: string; depth: number; budget: any; children: any[] }> = [];
+
+      // Generate a tree: start with a root delegated by human, then recursively delegate down
+      function generateAndCreateTree(
+        delegatorActorId: string,
+        depth: number,
+        maxDepth: number,
+        parentBudget: { limit_usd: number | null; limit_tokens: number | null } | null,
+        parentTaskId: string | null
+      ): { id: string; depth: number; budget: any; children: any[] } | null {
+        // Stop at depth cap or randomly stop branching
+        if (depth > maxDepth || Math.random() < 0.4) {
+          return null;
+        }
+
+        const branchFactor = Math.floor(Math.random() * 4) + 1; // 1-4 children
+        const children: any[] = [];
+        const allChildBudgets: { usd: number; tokens: number }[] = [];
+
+        // Attempt to create children, respecting budget conservation
+        for (let i = 0; i < branchFactor; i++) {
+          const workerIdx = Math.floor(Math.random() * workers.length);
+          const assignee = workers[workerIdx]!;
+
+          // Random budget: sometimes null (uncapped), sometimes a number
+          let childLimitUsd: number | null = null;
+          let childLimitTokens: number | null = null;
+
+          if (parentBudget) {
+            // Sometimes this child has a budget, sometimes not
+            if (parentBudget.limit_usd !== null && Math.random() > 0.3) {
+              // Random amount, but not necessarily respecting conservation yet
+              childLimitUsd = Math.floor(Math.random() * (parentBudget.limit_usd + 5));
+            }
+            if (parentBudget.limit_tokens !== null && Math.random() > 0.3) {
+              childLimitTokens = Math.floor(Math.random() * (parentBudget.limit_tokens + 1000));
+            }
+          }
+
+          const childBudget = { limit_usd: childLimitUsd, limit_tokens: childLimitTokens, spent_usd: 0, spent_tokens: 0 };
+
+          // Check policy before creating the task
+          const policyErr = checkDelegation({
+            store: server.store,
+            delegator: delegatorActorId,
+            input: {
+              acceptance_criteria_md: `Child ${depth}-${i}`,
+              budget: childBudget,
+              assignee_agent_id: assignee.id,
+            },
+            parentTask: parentTaskId
+              ? { id: parentTaskId as never, depth, budget: parentBudget! }
+              : undefined,
+          });
+
+          // Only create the task if policy check passes
+          if (!policyErr) {
+            const task = server.store.commands.createTask({
+              parent_task_id: parentTaskId ? (parentTaskId as never) : null,
+              delegator_actor_id: delegatorActorId as never,
+              assignee_agent_id: assignee.id as never,
+              spec_md: `Spec for child ${depth}-${i}`,
+              acceptance_criteria_md: `Child ${depth}-${i}`,
+              budget: childBudget,
+            });
+
+            allChildBudgets.push({
+              usd: childLimitUsd ?? 0,
+              tokens: childLimitTokens ?? 0,
+            });
+
+            // Recurse down
+            const grandchild = generateAndCreateTree(
+              assignee.actor_id,
+              depth + 1,
+              maxDepth,
+              childBudget,
+              task.id
+            );
+            children.push({ task, grandchild });
+            createdTasks.push({
+              id: task.id,
+              depth: task.depth,
+              budget: task.budget,
+              children: grandchild ? [grandchild] : [],
+            });
+          }
+        }
+
+        return parentTaskId
+          ? { id: parentTaskId, depth, budget: parentBudget, children }
+          : null;
+      }
+
+      // Start the tree at depth 0 with a root task from human
+      const rootBudget = {
+        limit_usd: Math.random() > 0.5 ? Math.floor(Math.random() * 1000) + 10 : null,
+        limit_tokens: Math.random() > 0.5 ? Math.floor(Math.random() * 100000) + 1000 : null,
+        spent_usd: 0,
+        spent_tokens: 0,
+      };
+
+      const root = server.store.commands.createTask({
+        parent_task_id: null,
+        delegator_actor_id: human as never,
+        assignee_agent_id: workers[0]!.id as never,
+        spec_md: "Root spec",
+        acceptance_criteria_md: "Root AC",
+        budget: rootBudget,
+      });
+
+      createdTasks.push({
+        id: root.id,
+        depth: root.depth,
+        budget: root.budget,
+        children: [],
+      });
+
+      // Recursively build children from the root
+      generateAndCreateTree(
+        workers[0]!.actor_id,
+        1,
+        DEFAULT_POLICY.max_depth,
+        { limit_usd: rootBudget.limit_usd, limit_tokens: rootBudget.limit_tokens },
+        root.id
+      );
+
+      // Verify invariants on all created tasks
+      for (const taskRecord of createdTasks) {
+        const task = server.store.tasks.get(taskRecord.id as never);
+        if (!task) continue;
+
+        // 1. Depth never exceeds max_depth
+        expect(task.depth).toBeLessThanOrEqual(DEFAULT_POLICY.max_depth);
+
+        // 2. If this task has a parent, check budget conservation
+        if (task.parent_task_id) {
+          const parent = server.store.tasks.get(task.parent_task_id as never);
+          if (!parent) continue;
+
+          // Get all non-terminal siblings (including this task in its current non-terminal state)
+          const siblings = server.store.tasks
+            .list()
+            .filter(
+              (t) =>
+                t.parent_task_id === parent.id &&
+                ["pending", "in_progress", "blocked", "delivered", "rejected"].includes(t.state)
+            );
+
+          // Check each budget axis
+          for (const axis of ["limit_usd", "limit_tokens"] as const) {
+            const parentLimit = parent.budget[axis];
+            const childLimit = task.budget[axis];
+
+            // Only check if both parent and child have non-null limits on this axis
+            if (parentLimit !== null && childLimit !== null) {
+              const siblingSum = siblings
+                .filter((s) => s.id !== task.id)
+                .reduce((sum, s) => sum + (s.budget[axis] ?? 0), 0);
+
+              const totalChildBudget = childLimit + siblingSum;
+              expect(totalChildBudget, `Task ${task.id} axis ${axis}: child ${childLimit} + siblings ${siblingSum} exceeds parent ${parentLimit}`)
+                .toBeLessThanOrEqual(parentLimit);
+            }
+          }
+        }
+      }
+    }
   });
 });
