@@ -37,6 +37,15 @@ export type AgentLifecycleAction = z.infer<typeof AgentLifecycleActionSchema>;
 export const AgentLifecycleRequestSchema = z.object({ reason: z.string().optional() });
 export type AgentLifecycleRequest = z.infer<typeof AgentLifecycleRequestSchema>;
 
+// --- POST /api/teams ---
+
+export const CreateTeamRequestSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().default(""),
+  default_policy: PolicySchema.optional(),
+});
+export type CreateTeamRequest = z.infer<typeof CreateTeamRequestSchema>;
+
 // --- POST /api/workstreams · messages · close ---
 
 export const CreateWorkstreamRequestSchema = z.object({

@@ -17,6 +17,7 @@ import { createTokenRegistry, type TokenRegistry } from "./orgtools/tokens.js";
 import { commitAgentMemory, commitAgentSkills } from "./memory/git.js";
 import { sweepExpiredQuestions } from "./sweep/expireMessages.js";
 import { registerAgentRoutes } from "./routes/agents.js";
+import { registerTeamRoutes } from "./routes/teams.js";
 import { registerWorkstreamRoutes } from "./routes/workstreams.js";
 import { registerQueryRoutes } from "./routes/queries.js";
 import { registerFeedRoutes } from "./routes/feed.js";
@@ -194,6 +195,7 @@ export function createServer(config: ServerConfig): FoundryServer {
     },
   };
   registerAgentRoutes(app, ctx);
+  registerTeamRoutes(app, ctx);
   registerWorkstreamRoutes(app, ctx);
   registerQueryRoutes(app, ctx);
   registerFeedRoutes(app, ctx);
