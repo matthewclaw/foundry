@@ -132,6 +132,27 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
       parentTask,
     });
     if (policyErr) {
+      // E10.4 Rule 3: Cap hits → inbox escalation (depth_cap or budget_exceeded)
+      if (policyErr.code === "depth_cap" || policyErr.code === "budget_exceeded") {
+        const human = ctx.store.commands.getOrCreateHumanActor();
+        const thread = ctx.store.commands.getOrCreateThread("workstream", cred.agentId as string);
+        const details = (policyErr.details as any) || {};
+        let body = "";
+        if (policyErr.code === "depth_cap") {
+          body = `Delegation depth cap hit: attempted depth ${details.child_depth}, max allowed ${details.max_depth}. The delegating run has received this error. Consider doing the work directly or requesting a policy override.`;
+        } else if (policyErr.code === "budget_exceeded") {
+          body = `Delegation budget cap exceeded on ${details.axis}: child limit ${details.child_limit} plus open siblings' ${details.sibling_sum} exceeds parent limit ${details.parent_limit}. The delegating run has received this error. Consider adjusting budget allocation or concluding work.`;
+        }
+        ctx.store.commands.sendMessage({
+          thread_id: thread.id,
+          from_actor_id: cred.actorId as never,
+          to_actor_id: human,
+          type: "escalation",
+          body_md: body,
+          refs: [],
+          visibility: "surfaced",
+        });
+      }
       return { ok: false, error: policyErr };
     }
 

@@ -9,7 +9,7 @@
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import { mkdirSync } from "node:fs";
-import { createStore, type Store } from "@foundry/store";
+import { createStore, type Store, computeAgentStatusFacts } from "@foundry/store";
 import { createRuntime, type AdapterRegistry, type Runtime, type RunQueueLimits } from "@foundry/runtime";
 import { composeContext } from "./context/compose.js";
 import { problemErrorHandler } from "./problem.js";
@@ -80,9 +80,77 @@ export function createServer(config: ServerConfig): FoundryServer {
       };
     },
     revokeRunCredential: (run) => tokens.revokeRun(run.id),
-    afterRun: ({ run, agent }) => {
+    afterRun: ({ run, workstream, agent }) => {
       // E11.1: git-version the agent's memory after every run that touched it.
       commitAgentMemory(config.dataDir, agent.memory_ref, `run ${run.id}`);
+
+      // E10.4 Rule 1: Crash loop detection — escalate when agent status becomes degraded
+      if (run.state === "failed") {
+        const facts = computeAgentStatusFacts(store.db, agent.id);
+        if (facts.recentConsecutiveFailures === 2) {
+          const human = store.commands.getOrCreateHumanActor();
+          const thread = store.commands.getOrCreateThread("workstream", agent.id);
+          store.commands.sendMessage({
+            thread_id: thread.id,
+            from_actor_id: agent.actor_id,
+            to_actor_id: human,
+            type: "escalation",
+            body_md: `Agent ${agent.name} has failed twice in a row and is now degraded. Consider investigating the root cause or temporarily reassigning work.`,
+            refs: [],
+            visibility: "surfaced",
+          });
+        }
+      }
+
+      // E10.4 Rule 2: Budget % threshold detection — escalate at 80% of budget limit
+      if (workstream.budget) {
+        const { limit_usd, limit_tokens, spent_usd, spent_tokens } = workstream.budget;
+
+        // Check USD budget threshold
+        if (limit_usd !== null && spent_usd / limit_usd >= 0.8) {
+          const existingEscalation = store.messages
+            .listByThread(store.commands.getOrCreateThread("workstream", agent.id).id)
+            .some((m) => m.type === "escalation" && m.disposition === "open" && m.body_md.includes("budget"));
+
+          if (!existingEscalation) {
+            const human = store.commands.getOrCreateHumanActor();
+            const thread = store.commands.getOrCreateThread("workstream", agent.id);
+            const percentUsed = Math.round((spent_usd / limit_usd) * 100);
+            store.commands.sendMessage({
+              thread_id: thread.id,
+              from_actor_id: agent.actor_id,
+              to_actor_id: human,
+              type: "escalation",
+              body_md: `Workstream is at ${percentUsed}% of USD budget ($${spent_usd.toFixed(2)} of $${limit_usd.toFixed(2)}). Consider pausing or concluding work.`,
+              refs: [],
+              visibility: "surfaced",
+            });
+          }
+        }
+
+        // Check tokens budget threshold
+        if (limit_tokens !== null && spent_tokens / limit_tokens >= 0.8) {
+          const existingEscalation = store.messages
+            .listByThread(store.commands.getOrCreateThread("workstream", agent.id).id)
+            .some((m) => m.type === "escalation" && m.disposition === "open" && m.body_md.includes("tokens"));
+
+          if (!existingEscalation) {
+            const human = store.commands.getOrCreateHumanActor();
+            const thread = store.commands.getOrCreateThread("workstream", agent.id);
+            const percentUsed = Math.round((spent_tokens / limit_tokens) * 100);
+            store.commands.sendMessage({
+              thread_id: thread.id,
+              from_actor_id: agent.actor_id,
+              to_actor_id: human,
+              type: "escalation",
+              body_md: `Workstream is at ${percentUsed}% of token budget (${spent_tokens} of ${limit_tokens} tokens). Consider pausing or concluding work.`,
+              refs: [],
+              visibility: "surfaced",
+            });
+          }
+        }
+      }
+
       // E11.3 etc.: one-shot per-run settle callbacks (e.g. close-after-distillation).
       const callbacks = runSettled.get(run.id);
       if (callbacks) {
