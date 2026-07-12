@@ -173,6 +173,9 @@ export const RunSchema = z.object({
   usage: UsageSchema.nullable(),
   started_at: TimestampSchema.nullable(),
   ended_at: TimestampSchema.nullable(),
+  /** User-set display name for the conversation this run belongs to (a chain of runs
+   * sharing an engine_session_id via resume). Null until explicitly renamed. */
+  title: z.string().nullable(),
 });
 export type Run = z.infer<typeof RunSchema>;
 

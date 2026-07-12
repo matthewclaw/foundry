@@ -117,6 +117,7 @@ export const runFixture: Run = {
   usage: { tokens_in: 1000, tokens_out: 200 },
   started_at: NOW,
   ended_at: null,
+  title: null,
 };
 
 export const taskFixture: Task = {

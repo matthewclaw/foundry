@@ -450,4 +450,61 @@ describe("Workstream routes (E5.3)", () => {
 
     expect(res.statusCode).toBe(400);
   });
+
+  it("PATCH /api/runs/:id/title 200 — renames the run's conversation", async () => {
+    const agentId = await createAgent();
+
+    const wsRes = await server.app.inject({
+      method: "POST",
+      url: "/api/workstreams",
+      payload: { agent_id: agentId, title: "WS", goal_md: "# Goal" },
+    });
+    const workstreamId = JSON.parse(wsRes.body).id;
+
+    const msgRes = await server.app.inject({
+      method: "POST",
+      url: `/api/workstreams/${workstreamId}/messages`,
+      payload: { kind: "message", body_md: "# Test" },
+    });
+    const { run_id } = JSON.parse(msgRes.body);
+
+    const res = await server.app.inject({
+      method: "PATCH",
+      url: `/api/runs/${run_id}/title`,
+      payload: { title: "Debugging the login flow" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).title).toBe("Debugging the login flow");
+    expect(server.store.runs.get(run_id)?.title).toBe("Debugging the login flow");
+  });
+
+  it("PATCH /api/runs/:id/title 404 — run not found", async () => {
+    const res = await server.app.inject({
+      method: "PATCH",
+      url: "/api/runs/nonexistent/title",
+      payload: { title: "New name" },
+    });
+
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("POST /api/workstreams/:id/messages resume:false forces a new conversation", async () => {
+    const agentId = await createAgent();
+
+    const wsRes = await server.app.inject({
+      method: "POST",
+      url: "/api/workstreams",
+      payload: { agent_id: agentId, title: "WS", goal_md: "# Goal" },
+    });
+    const workstreamId = JSON.parse(wsRes.body).id;
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: `/api/workstreams/${workstreamId}/messages`,
+      payload: { kind: "message", body_md: "# Test", resume: false },
+    });
+
+    expect(res.statusCode).toBe(202);
+  });
 });

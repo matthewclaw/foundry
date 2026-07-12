@@ -218,4 +218,11 @@ INSERT INTO runs_fts (id, result_json)
 SELECT id, result_json FROM runs WHERE result_json IS NOT NULL;
 `,
   },
+  {
+    version: 3,
+    name: "run-titles",
+    up: `
+ALTER TABLE runs ADD COLUMN title TEXT;
+`,
+  },
 ];

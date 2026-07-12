@@ -189,13 +189,14 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
       limits: { wallClockMs: job.wallClockMs ?? opts.defaultWallClockMs ?? DEFAULT_WALL_CLOCK_MS },
     };
 
-    // Conversation continuity: if the engine supports session resume and the most
-    // recent prior run on this workstream ended with a session to resume into,
-    // continue that session instead of cold-starting a fresh one with no memory
-    // beyond the "Prior runs" summary in the composed context (compose.ts). This is
-    // the same adapter.resume() as E4.6's crash recovery, just triggered by "another
+    // Conversation continuity: if the caller asked for it (job.allowResume — a Reply
+    // does, a deliberate "new conversation" doesn't), the engine supports session
+    // resume, and the most recent prior run on this workstream ended with a session to
+    // resume into, continue that session instead of cold-starting a fresh one with no
+    // memory beyond the "Prior runs" summary in the composed context (compose.ts).
+    // Same adapter.resume() as E4.6's crash recovery, just triggered by "another
     // message arrived" rather than "the process died mid-run."
-    const priorSessionId = findResumableSessionId(job.workstreamId, run.id, adapter);
+    const priorSessionId = job.allowResume === false ? undefined : findResumableSessionId(job.workstreamId, run.id, adapter);
     const handle = priorSessionId
       ? await adapter.resume!({ ...spec, sessionRef: priorSessionId })
       : await adapter.start(spec);
@@ -271,9 +272,13 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
    */
   function findResumableSessionId(workstreamId: RunQueueJob["workstreamId"], currentRunId: Run["id"], adapter: ExecutionAdapter): string | undefined {
     if (!adapter.capabilities().resume || !adapter.resume) return undefined;
+    // The most recent prior run WITH a session — not just the most recent run
+    // overall, which may be a cancelled/failed one that never got far enough to
+    // capture a session id (e.g. a workspace-acquisition refusal). Skipping straight
+    // past those to the last real session means a blip doesn't sever the conversation.
     const priorRuns = opts.store.runs
       .list({ workstream_id: workstreamId })
-      .filter((r) => r.id !== currentRunId && r.ended_at !== null);
+      .filter((r) => r.id !== currentRunId && r.ended_at !== null && r.engine_session_id);
     return priorRuns.at(-1)?.engine_session_id ?? undefined;
   }
 

@@ -196,6 +196,112 @@ describe("createRunSupervisor — E4.2", () => {
     expect(store.runs.get(run2.id)?.state).toBe("completed");
   });
 
+  it("conversation continuity: skips past a sessionless run (e.g. a workspace refusal) to the last real session", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Chat with a blip");
+
+    const spy = spyOnStartResume(createFakeAdapter(loadScenario("happy-path")));
+    const supervisor = createRunSupervisor({ store, adapters: { fake: spy.adapter } });
+
+    const run1 = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/1/context.md",
+      engine_id: "fake",
+    });
+    await supervisor.execute(run1, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/1/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "happy-path" },
+    });
+    expect(store.runs.get(run1.id)?.engine_session_id).toBe("sess-happy-path");
+
+    // A run that never got a session — e.g. workspace acquisition refused it before
+    // the engine ever started (the exact shape a real "worktree already exists" bug
+    // produced live).
+    const blip = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/2/context.md",
+      engine_id: "fake",
+    });
+    store.commands.transitionRunState({ id: blip.id, workstreamId: ws, to: "cancelled", actorId: null, reason: "workspace acquisition refused" });
+    expect(store.runs.get(blip.id)?.engine_session_id).toBeNull();
+
+    const run3 = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/3/context.md",
+      engine_id: "fake",
+    });
+    await supervisor.execute(run3, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/3/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "happy-path" },
+    });
+
+    // Resumed run1's session, not blocked or fooled by the sessionless blip in between.
+    expect(spy.startCalls()).toBe(1);
+    expect(spy.resumeCalls()).toHaveLength(1);
+    expect(spy.resumeCalls()[0]!.sessionRef).toBe("sess-happy-path");
+  });
+
+  it("allowResume: false forces a cold start into a new conversation even though a resumable session exists", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "New conversation on the same workstream");
+
+    const spy = spyOnStartResume(createFakeAdapter(loadScenario("happy-path")));
+    const supervisor = createRunSupervisor({ store, adapters: { fake: spy.adapter } });
+
+    const run1 = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/1/context.md",
+      engine_id: "fake",
+    });
+    await supervisor.execute(run1, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/1/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "happy-path" },
+    });
+    expect(store.runs.get(run1.id)?.engine_session_id).toBe("sess-happy-path");
+
+    const run2 = store.commands.createRun({
+      workstream_id: ws,
+      trigger: "human_message",
+      input_context_ref: "runs/2/context.md",
+      engine_id: "fake",
+    });
+    await supervisor.execute(run2, {
+      workstreamId: ws,
+      trigger: "human_message",
+      inputContextRef: "runs/2/context.md",
+      engineId: "fake",
+      agentName: "Orbit",
+      workspaceDir: dir!,
+      engineConfig: { scenarioName: "happy-path" },
+      allowResume: false,
+    });
+
+    // Cold-started again — resume() never called despite run1's session being available.
+    expect(spy.startCalls()).toBe(2);
+    expect(spy.resumeCalls()).toHaveLength(0);
+  });
+
   it("F15: a malformed EngineEvent from a buggy adapter fails the run safely, not the org state", async () => {
     const store = testStore();
     const agentId = bootstrapAgent(store);

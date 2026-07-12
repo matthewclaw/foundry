@@ -11,6 +11,7 @@ import {
   PostWorkstreamMessageRequestSchema,
   CloseWorkstreamRequestSchema,
   CancelRunRequestSchema,
+  SetRunTitleRequestSchema,
   type Budget,
   type AgentId,
   type WorkstreamId,
@@ -104,6 +105,7 @@ export function registerWorkstreamRoutes(app: FastifyInstance, ctx: RouteContext
           workstreamId,
           trigger: "human_message",
           triggerMessageMd: body.body_md,
+          allowResume: body.resume,
         });
       } catch (err) {
         // Wrap runtime errors (e.g., suspended agent) into 409
@@ -219,6 +221,23 @@ export function registerWorkstreamRoutes(app: FastifyInstance, ctx: RouteContext
       }
 
       return reply.status(202).send({ ok: true });
+    }
+  );
+
+  // PATCH /api/runs/:id/title — rename the conversation this run belongs to
+  app.patch<{ Params: { id: string }; Body: unknown }>(
+    "/api/runs/:id/title",
+    async (request, reply) => {
+      const runId = request.params.id as RunId;
+      const body = SetRunTitleRequestSchema.parse(request.body);
+
+      const run = ctx.store.runs.get(runId);
+      if (!run) {
+        throw new ProblemError(404, "Run not found", `Run ${runId} does not exist`);
+      }
+
+      ctx.store.commands.setRunTitle({ id: runId, workstreamId: run.workstream_id, title: body.title });
+      return reply.status(200).send(ctx.store.runs.get(runId));
     }
   );
 }

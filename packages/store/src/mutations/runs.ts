@@ -55,6 +55,7 @@ export function createRun(mutate: Mutate, input: CreateRunInput): Run {
         usage: null,
         started_at: null,
         ended_at: null,
+        title: null,
       } satisfies Run;
     },
     events: [
@@ -150,6 +151,33 @@ export function emitRunDetailEvent(
   });
 }
 
+export interface SetRunTitleArgs {
+  id: string;
+  workstreamId: WorkstreamId;
+  title: string;
+}
+
+/** Renames the conversation this run belongs to. Not state-machine-gated (unlike
+ * transitionRunState) — a display label, settable at any point in the run's life. */
+export function setRunTitle(mutate: Mutate, args: SetRunTitleArgs): void {
+  mutate({
+    apply: (tx) => {
+      tx.db.prepare(`UPDATE runs SET title = ? WHERE id = ?`).run(args.title, args.id);
+    },
+    events: [
+      {
+        actor_id: null,
+        entity_type: "run",
+        entity_id: args.id,
+        type: "run_titled",
+        payload: { title: args.title },
+        run_id: args.id as Run["id"],
+        workstream_id: args.workstreamId,
+      },
+    ],
+  });
+}
+
 export interface RunRow {
   id: string;
   workstream_id: string;
@@ -163,6 +191,7 @@ export interface RunRow {
   usage_json: string | null;
   started_at: string | null;
   ended_at: string | null;
+  title: string | null;
 }
 
 export function rowToRun(row: RunRow): Run {
@@ -179,5 +208,6 @@ export function rowToRun(row: RunRow): Run {
     usage: fromJsonNullable<Usage>(row.usage_json),
     started_at: row.started_at,
     ended_at: row.ended_at,
+    title: row.title,
   };
 }

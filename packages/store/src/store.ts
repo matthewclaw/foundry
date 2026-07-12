@@ -44,8 +44,10 @@ import {
   createRun,
   transitionRunState,
   emitRunDetailEvent,
+  setRunTitle,
   type CreateRunInput,
   type TransitionRunStateArgs,
+  type SetRunTitleArgs,
 } from "./mutations/runs.js";
 import {
   createTask,
@@ -88,6 +90,7 @@ export interface StoreCommands {
   transitionWorkstreamState(args: TransitionWorkstreamStateArgs): void;
   createRun(input: CreateRunInput): Run;
   transitionRunState(args: TransitionRunStateArgs): void;
+  setRunTitle(args: SetRunTitleArgs): void;
   emitRunDetailEvent(
     event: Pick<NewEvent, "entity_id" | "type" | "payload" | "run_id" | "workstream_id" | "actor_id">
   ): void;
@@ -151,6 +154,7 @@ export function createStore(config: StoreConfig): Store {
       transitionWorkstreamState: (args) => transitionWorkstreamState(db, mutate, args),
       createRun: (input) => createRun(mutate, input),
       transitionRunState: (args) => transitionRunState(db, mutate, args),
+      setRunTitle: (args) => setRunTitle(mutate, args),
       emitRunDetailEvent: (event) => emitRunDetailEvent(mutate, event),
       createTask: (input) => createTask(db, mutate, input),
       transitionTaskState: (args) => transitionTaskState(db, mutate, args),

@@ -26,6 +26,11 @@ export interface RunQueueJob {
   wallClockMs?: number;
   /** The message body that triggered this run, if any (see CreateRunInput). */
   triggerMessageMd?: string;
+  /** Explicit resume control (default true — existing auto-resume-if-possible
+   * behavior): a Reply continues the current conversation; a deliberate "new
+   * conversation" action sets this false to force a cold start even though a
+   * resumable session exists. */
+  allowResume?: boolean;
 }
 
 export interface RunQueueLimits {

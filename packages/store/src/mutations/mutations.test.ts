@@ -7,7 +7,7 @@ import { createAgent, transitionAgentState } from "./agents.js";
 import { createTeam } from "./teams.js";
 import { createWorkstream, transitionWorkstreamState } from "./workstreams.js";
 import { createTask, transitionTaskState } from "./tasks.js";
-import { createRun, transitionRunState } from "./runs.js";
+import { createRun, transitionRunState, setRunTitle } from "./runs.js";
 import { getOrCreateThread, resolveMessageDisposition, sendMessage } from "./messages.js";
 import { InvalidTransitionError } from "./transition-helper.js";
 
@@ -236,6 +236,41 @@ describe("run mutation helpers", () => {
     };
     expect(row.state).toBe("completed");
     expect(row.ended_at).not.toBeNull();
+  });
+
+  it("setRunTitle renames a run's conversation without touching its state", () => {
+    const { db, mutate } = harness();
+    const { agentId } = createAgent(mutate, {
+      name: "A",
+      role: "R",
+      team_id: null,
+      engine_id: "claude-code",
+      memory_ref: "m",
+      charter_body_md: "#",
+    });
+    const ws = createWorkstream(mutate, {
+      agent_id: agentId,
+      title: "T",
+      goal_md: "g",
+      origin: "human",
+      budget: { limit_usd: null, limit_tokens: null, spent_usd: 0, spent_tokens: 0 },
+    });
+    const run = createRun(mutate, {
+      workstream_id: ws.id,
+      trigger: "human_message",
+      input_context_ref: "runs/1/context.md",
+      engine_id: "claude-code",
+    });
+    expect(run.title).toBeNull();
+
+    setRunTitle(mutate, { id: run.id, workstreamId: ws.id, title: "Debugging the login flow" });
+
+    const row = db.prepare(`SELECT title, state FROM runs WHERE id = ?`).get(run.id) as {
+      title: string | null;
+      state: string;
+    };
+    expect(row.title).toBe("Debugging the login flow");
+    expect(row.state).toBe("queued");
   });
 });
 

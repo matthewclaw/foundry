@@ -57,12 +57,21 @@ export const CreateWorkstreamRequestSchema = z.object({
 });
 export type CreateWorkstreamRequest = z.infer<typeof CreateWorkstreamRequestSchema>;
 
-/** A human message on a workstream is either a plain message or a `redirect` (04). */
+/** A human message on a workstream is either a plain message or a `redirect` (04).
+ * `resume` (default true) picks reply-vs-new-conversation: true continues the current
+ * engine session (a Reply, in the UI's terms), false forces a cold start into a new
+ * conversation even if a resumable session exists. */
 export const PostWorkstreamMessageRequestSchema = z.object({
   kind: z.enum(["message", "redirect"]).default("message"),
   body_md: z.string().min(1),
+  resume: z.boolean().default(true),
 });
 export type PostWorkstreamMessageRequest = z.infer<typeof PostWorkstreamMessageRequestSchema>;
+
+export const SetRunTitleRequestSchema = z.object({
+  title: z.string().min(1),
+});
+export type SetRunTitleRequest = z.infer<typeof SetRunTitleRequestSchema>;
 
 export const CloseWorkstreamRequestSchema = z.object({
   reason: z.string().optional(),

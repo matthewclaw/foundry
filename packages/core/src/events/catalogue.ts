@@ -119,6 +119,7 @@ export const EVENT_CATALOGUE = {
     })
   ),
   run_output_delta: entry("run", z.object({ text: z.string() })),
+  run_titled: entry("run", z.object({ title: z.string() })),
 
   // --- task_* (02 Task + 04 delegation flow) ---
   task_created: entry(
