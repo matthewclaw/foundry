@@ -181,6 +181,11 @@ describe("Workstream routes (E5.3)", () => {
     const run = server.store.runs.get(body.run_id);
     expect(run).toBeDefined();
     expect(run?.workstream_id).toBe(workstreamId);
+
+    // The run_queued event carries the actual message text, not just the trigger kind
+    // — otherwise the timeline can only ever show "human_message" with no content.
+    const queuedEvent = server.store.events.after(0, { run_id: body.run_id, type: "run_queued" })[0];
+    expect(queuedEvent?.payload).toEqual({ trigger: "human_message", message_md: "# Please do this" });
   });
 
   it("POST /api/workstreams/:id/messages with kind='redirect'", async () => {

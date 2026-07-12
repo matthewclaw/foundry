@@ -99,7 +99,7 @@ export const EVENT_CATALOGUE = {
   workstream_archived: entry("workstream", EMPTY),
 
   // --- run_* (adapter-api EngineEvent + run state machine) ---
-  run_queued: entry("run", z.object({ trigger: RunTriggerSchema })),
+  run_queued: entry("run", z.object({ trigger: RunTriggerSchema, message_md: z.string().optional() })),
   run_started: entry("run", z.object({ engine: z.string() })),
   run_running: entry("run", z.object({ engine_session_id: z.string().nullable().optional() })),
   run_awaiting_input: entry("run", z.object({ prompt: z.string() })),

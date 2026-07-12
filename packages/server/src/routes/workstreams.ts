@@ -103,6 +103,7 @@ export function registerWorkstreamRoutes(app: FastifyInstance, ctx: RouteContext
         run = ctx.runtime.enqueue({
           workstreamId,
           trigger: "human_message",
+          triggerMessageMd: body.body_md,
         });
       } catch (err) {
         // Wrap runtime errors (e.g., suspended agent) into 409

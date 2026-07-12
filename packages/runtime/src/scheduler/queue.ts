@@ -24,6 +24,8 @@ export interface RunQueueJob {
   engineConfig?: unknown;
   orgTools?: { mcpConfig?: object; cliEnv?: Record<string, string> };
   wallClockMs?: number;
+  /** The message body that triggered this run, if any (see CreateRunInput). */
+  triggerMessageMd?: string;
 }
 
 export interface RunQueueLimits {
@@ -133,6 +135,7 @@ export function createRunQueue(opts: RunQueueOptions): RunQueue {
         trigger: job.trigger,
         input_context_ref: job.inputContextRef,
         engine_id: job.engineId,
+        trigger_message_md: job.triggerMessageMd,
       });
       pending.push({ run, job });
       drain();

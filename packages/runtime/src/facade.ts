@@ -53,7 +53,7 @@ export interface RuntimeOptions {
 }
 
 export interface Runtime {
-  enqueue(job: { workstreamId: WorkstreamId; trigger: RunTrigger }): Run;
+  enqueue(job: { workstreamId: WorkstreamId; trigger: RunTrigger; triggerMessageMd?: string }): Run;
   cancelRun(runId: RunId, reason?: string): Promise<void>;
   reconcileOnStartup(): Promise<ReconcileResult>;
   /** Doc-05 retention: drop the workstream's worktree/scratch dir (on close/archive). */
@@ -177,7 +177,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   }
 
   return {
-    enqueue({ workstreamId, trigger }) {
+    enqueue({ workstreamId, trigger, triggerMessageMd }) {
       const { workstream, agent } = resolve(workstreamId);
       if (agent.state !== "active") {
         throw new Error(`agent ${agent.id} is ${agent.state}, not runnable`);
@@ -193,6 +193,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         agentId: agent.id,
         teamId: agent.team_id ?? undefined,
         agentName: agent.name,
+        triggerMessageMd,
       });
       return run;
     },

@@ -18,6 +18,10 @@ export interface CreateRunInput {
   trigger: RunTrigger;
   input_context_ref: string;
   engine_id: string;
+  /** The message body that triggered this run (human_message/redirect/agent_message)
+   * — carried on the run_queued event so the timeline can show what was actually said,
+   * not just the trigger kind. */
+  trigger_message_md?: string;
 }
 
 export function createRun(mutate: Mutate, input: CreateRunInput): Run {
@@ -59,7 +63,9 @@ export function createRun(mutate: Mutate, input: CreateRunInput): Run {
         entity_type: "run",
         entity_id: id,
         type: "run_queued",
-        payload: { trigger: input.trigger },
+        payload: input.trigger_message_md
+          ? { trigger: input.trigger, message_md: input.trigger_message_md }
+          : { trigger: input.trigger },
         run_id: id,
         workstream_id: input.workstream_id,
       },
