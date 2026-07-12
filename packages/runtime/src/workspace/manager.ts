@@ -5,7 +5,7 @@
  * workstream blocked. Non-code workstreams get plain scratch directories.
  */
 import { mkdirSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { WorkstreamId } from "@foundry/core";
 import type { Store } from "@foundry/store";
@@ -28,7 +28,11 @@ export interface WorkspaceManager {
 }
 
 export function createWorkspaceManager(options: WorkspaceManagerOptions): WorkspaceManager {
-  const { store, worktreesRoot } = options;
+  const { store } = options;
+  // Must be absolute: git commands for git_worktree acquisition run with cwd set to
+  // the target repo (possibly anywhere on disk), so a relative worktreesRoot would get
+  // resolved against that repo's path instead of where Foundry actually meant it.
+  const worktreesRoot = resolve(options.worktreesRoot);
   const worktreePathCache = new Map<WorkstreamId, { repoPath: string; worktreePath: string }>();
 
   function getWorktreePath(workstreamId: WorkstreamId): string {

@@ -10,7 +10,7 @@
  * prints stream-json, which is exactly what fixtures/replay.mjs does. The live CLI is
  * only exercised in the manual/nightly lane (E9.5); no test here calls a paid engine.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
@@ -77,7 +77,17 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
     if (!isClaudeHandle(handle)) return;
     handle.cancelRequested = true;
     if (handle.child.exitCode === null && !handle.child.killed) {
-      handle.child.kill(); // SIGTERM; on Windows terminates the process
+      if (process.platform === "win32") {
+        // handle.child is cmd.exe (see spawnRun) — killing just that process leaves
+        // the real CLI it launched running. taskkill /T walks the whole process tree.
+        try {
+          execFileSync("taskkill", ["/pid", String(handle.child.pid), "/T", "/F"]);
+        } catch {
+          // Already exited between the exitCode check and here — fine.
+        }
+      } else {
+        handle.child.kill(); // SIGTERM
+      }
     }
   }
 
@@ -127,12 +137,23 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
       // credential inside) — passed inline; the CLI accepts a JSON string or a path.
       ...(spec.orgTools.mcpConfig ? ["--mcp-config", JSON.stringify(spec.orgTools.mcpConfig)] : []),
     ];
-    const child = spawn(config.cliPath, args, {
-      cwd: spec.workspaceDir && existsSync(spec.workspaceDir) ? spec.workspaceDir : undefined,
-      env: { ...process.env, ...spec.orgTools.cliEnv },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
+    // On Windows, node-installed CLIs are .cmd shims that plain spawn() can't launch
+    // directly (EINVAL — CreateProcess has no batch-file interpreter; that's cmd.exe's
+    // job). Route through `cmd.exe /d /s /c <cmd> <args...>` instead of shell:true: the
+    // args stay as separate argv slots that Node quotes for cmd.exe, so metacharacters
+    // in an argument (e.g. `&`, `|` inside the JSON-stringified mcpConfig) can't break
+    // out into a second command the way shell:true's single command-line string allows.
+    const cwd = spec.workspaceDir && existsSync(spec.workspaceDir) ? spec.workspaceDir : undefined;
+    const env = { ...process.env, ...spec.orgTools.cliEnv };
+    const child =
+      process.platform === "win32"
+        ? spawn("cmd.exe", ["/d", "/s", "/c", config.cliPath, ...args], {
+            cwd,
+            env,
+            stdio: ["pipe", "pipe", "pipe"],
+            windowsHide: true,
+          })
+        : spawn(config.cliPath, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     // The composed context is the prompt, fed on stdin (arbitrarily large, no argv
     // limit). A missing file (conformance suite uses a placeholder path) means an
     // empty prompt, not a crash.
