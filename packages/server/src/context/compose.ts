@@ -20,6 +20,12 @@ export interface ComposeArgs {
   run: Run;
   workstream: Workstream;
   agent: Agent;
+  /** Absolute cwd the engine actually runs this run in (facade.ts's acquireWorkspace) —
+   * without this, an agent asked to write a file has nothing in its context to tell it
+   * where "here" is, and falls back to guessing from the only other absolute paths it's
+   * seen (its memory/skills dirs, which live in the control plane's own data dir, not
+   * its workspace) — confirmed live: it guessed wrong every time. */
+  workspaceDir: string;
 }
 
 /** Composes and writes the run's context file; returns its absolute path. */
@@ -31,7 +37,7 @@ export function composeContext(args: ComposeArgs): string {
 }
 
 /** The pure composition — exported separately so golden-fixture tests need no filesystem. */
-export function composeContextText({ store, dataDir, run, workstream, agent }: ComposeArgs): string {
+export function composeContextText({ store, dataDir, run, workstream, agent, workspaceDir }: ComposeArgs): string {
   return [
     charterSection(store, agent),
     memorySection(dataDir, agent),
@@ -40,6 +46,7 @@ export function composeContextText({ store, dataDir, run, workstream, agent }: C
     pendingSection(store, agent),
     orgToolsSection(),
     skillsSection(dataDir, agent),
+    workspaceSection(workspaceDir),
   ].join("\n\n");
 }
 
@@ -196,6 +203,18 @@ function skillsSection(dataDir: string, agent: Agent): string {
   }
 
   return lines.join("\n");
+}
+
+function workspaceSection(workspaceDir: string): string {
+  if (!workspaceDir) {
+    return ["# Workspace", "", "No working directory for this run (not a code workstream)."].join("\n");
+  }
+  return [
+    "# Workspace",
+    "",
+    `Your working directory for this run: \`${workspaceDir}\``,
+    "Use relative paths for file tools — this is separate from your memory/skills directory above.",
+  ].join("\n");
 }
 
 function truncate(text: string, max: number): string {

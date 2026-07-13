@@ -28,7 +28,9 @@ afterEach(() => {
   dir = undefined;
 });
 
-function fixture(trigger: RunTrigger): { store: Store; run: Run; workstream: Workstream; agent: Agent; dataDir: string } {
+function fixture(
+  trigger: RunTrigger
+): { store: Store; run: Run; workstream: Workstream; agent: Agent; dataDir: string; workspaceDir: string } {
   dir = mkdtempSync(join(tmpdir(), "foundry-compose-"));
   const store = createStore({ dataDir: dir });
   stores.push(store);
@@ -100,7 +102,14 @@ function fixture(trigger: RunTrigger): { store: Store; run: Run; workstream: Wor
     input_context_ref: "runs/{run_id}/context.md",
     engine_id: "fake",
   });
-  return { store, run, workstream: store.workstreams.get(workstream.id)!, agent, dataDir: dir };
+  return {
+    store,
+    run,
+    workstream: store.workstreams.get(workstream.id)!,
+    agent,
+    dataDir: dir,
+    workspaceDir: join(dir, "repo-checkout"),
+  };
 }
 
 /** Swap generated ids/absolute paths for stable tokens so the golden text is deterministic. */
@@ -173,7 +182,12 @@ machine-readable codes you can react to.
 
 Your skills directory: \`<dataDir>/agents/orbit/skills\`
 
-(no skills yet — add them as SKILL.md files in subdirectories here)`);
+(no skills yet — add them as SKILL.md files in subdirectories here)
+
+# Workspace
+
+Your working directory for this run: \`<dataDir>/repo-checkout\`
+Use relative paths for file tools — this is separate from your memory/skills directory above.`);
   });
 
   it("resume trigger: trigger section swaps, everything else identical shape", () => {
@@ -181,7 +195,16 @@ Your skills directory: \`<dataDir>/agents/orbit/skills\`
     const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f }), f);
     expect(text).toContain("# Trigger\n\nYou are resuming previous work on this workstream after an interruption.");
     // Section order is pinned regardless of trigger.
-    const order = ["# Charter", "# Memory", "# Workstream", "# Trigger", "# Pending items", "# Org-tools", "# Skills"];
+    const order = [
+      "# Charter",
+      "# Memory",
+      "# Workstream",
+      "# Trigger",
+      "# Pending items",
+      "# Org-tools",
+      "# Skills",
+      "# Workspace",
+    ];
     const indices = order.map((h) => text.indexOf(`${h}\n`));
     expect(indices.every((i) => i >= 0)).toBe(true);
     expect([...indices].sort((a, b) => a - b)).toEqual(indices);
@@ -261,5 +284,17 @@ Body`,
     expect(text).toContain("- **valid** — Valid skill");
     // Malformed skill should not appear
     expect(text).not.toContain("malformed");
+  });
+
+  it("tells the agent its actual working directory — without this it can only guess (confirmed live: it guessed the memory dir's path instead)", () => {
+    const f = fixture("human_message");
+    const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f }), f);
+    expect(text).toContain("# Workspace\n\nYour working directory for this run: `<dataDir>/repo-checkout`");
+  });
+
+  it("renders a no-workspace fallback when workspaceDir is empty (non-code workstream)", () => {
+    const f = fixture("human_message");
+    const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f, workspaceDir: "" }), f);
+    expect(text).toContain("# Workspace\n\nNo working directory for this run (not a code workstream).");
   });
 });

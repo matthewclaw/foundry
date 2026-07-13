@@ -37,7 +37,7 @@ export interface RuntimeOptions {
    * absolute path. Called at execute time (not enqueue time) so the context reflects
    * the world when the run actually starts, e.g. after queue delay.
    */
-  composeContext(args: { run: Run; workstream: Workstream; agent: Agent }): string | Promise<string>;
+  composeContext(args: { run: Run; workstream: Workstream; agent: Agent; workspaceDir: string }): string | Promise<string>;
   /**
    * E6.1 hook: mint the per-run org-tools credential (server owns the token registry;
    * this layer only threads it into the RunSpec). Revoked when the run's execute
@@ -130,7 +130,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         return;
       }
 
-      const contextFile = await opts.composeContext({ run, workstream, agent });
+      const contextFile = await opts.composeContext({ run, workstream, agent, workspaceDir: acquired.workspaceDir ?? "" });
       try {
         await supervisor.execute(run, {
           ...job,
