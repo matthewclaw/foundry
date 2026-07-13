@@ -16,6 +16,7 @@
  * callback so this package stays free of composition/policy concerns.
  */
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import type { Agent, Run, RunId, RunTrigger, Workstream, WorkstreamId } from "@foundry/core";
 import type { Store } from "@foundry/store";
 import type { ExecutionAdapter, RunHandle } from "@foundry/adapter-api";
@@ -96,8 +97,18 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   function acquireWorkspace(workstream: Workstream): { ok: boolean; workspaceDir?: string; refusalReason?: string } {
     const ref = workstream.workspace_ref;
     if (ref?.kind === "git_worktree") return workspaces.acquireGitWorktree(workstream.id, ref.repo_path);
-    // plain_dir refs and non-code workstreams both get a plain directory; scratch
-    // covers the null case so every run has *some* isolated cwd.
+    if (ref?.kind === "plain_dir") {
+      // The point of plain_dir is running directly in an existing folder, no
+      // isolation — unlike git_worktree, there's no separate copy to fall back to,
+      // so a missing path is a clear refusal rather than silently using a scratch
+      // dir instead (that would work but silently ignore what the user asked for).
+      if (!existsSync(ref.path)) {
+        return { ok: false, refusalReason: `plain_dir path does not exist: ${ref.path}` };
+      }
+      return { ok: true, workspaceDir: ref.path };
+    }
+    // No workspace_ref (non-code workstream): scratch covers it so every run has
+    // *some* isolated cwd.
     return workspaces.acquireScratchDir(workstream.id);
   }
 

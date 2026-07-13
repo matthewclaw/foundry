@@ -80,18 +80,22 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
   const [repoPath, setRepoPath] = useState("");
+  const [useWorktree, setUseWorktree] = useState(true);
   const create = useMutation({
     mutationFn: () =>
       apiClient.createWorkstream({
         agent_id: agentId,
         title,
         goal_md: goal,
-        // The runtime only ever reads `repo_path` off a git_worktree ref — it derives
-        // its own worktree location and branch (E4.4) — so worktree_path/branch here
-        // are schema-required placeholders, not settings that do anything.
-        workspace_ref: repoPath.trim()
-          ? { kind: "git_worktree", repo_path: repoPath.trim(), worktree_path: repoPath.trim(), branch: "main" }
-          : undefined,
+        workspace_ref: !repoPath.trim()
+          ? undefined
+          : useWorktree
+            ? // The runtime only ever reads `repo_path` off a git_worktree ref — it
+              // derives its own worktree location and branch (E4.4) — so
+              // worktree_path/branch here are schema-required placeholders, not
+              // settings that do anything.
+              { kind: "git_worktree", repo_path: repoPath.trim(), worktree_path: repoPath.trim(), branch: "main" }
+            : { kind: "plain_dir", path: repoPath.trim() },
       }),
     onSuccess: (ws) => {
       void queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
@@ -134,9 +138,22 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
         disabled={create.isPending}
       />
       {repoPath.trim() && (
-        <p className="text-xs text-gray-500 mb-2">
-          The agent gets an isolated git worktree of this repo for this workstream's runs.
-        </p>
+        <div className="mb-2">
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            <input
+              type="checkbox"
+              checked={useWorktree}
+              onChange={(e) => setUseWorktree(e.target.checked)}
+              disabled={create.isPending}
+            />
+            Use an isolated git worktree (recommended)
+          </label>
+          <p className="text-xs text-gray-500 mt-1">
+            {useWorktree
+              ? "The agent works in its own git worktree copy of this repo — changes stay isolated until you merge them."
+              : "The agent works directly in this folder, no isolation — its edits land straight on your working tree."}
+          </p>
+        </div>
       )}
       <div className="flex items-center gap-3">
         <button

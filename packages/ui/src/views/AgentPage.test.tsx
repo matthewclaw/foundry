@@ -120,6 +120,27 @@ describe("AgentPage", () => {
     expect(await screen.findByText("workstream page: ws-new")).toBeTruthy();
   });
 
+  it("unchecking the worktree toggle sends a plain_dir ref instead", async () => {
+    vi.mocked(apiClient.createWorkstream).mockResolvedValue({ id: "ws-new3" });
+    renderPage();
+
+    await screen.findByText("Orbit Backend Engineer");
+    fireEvent.click(screen.getByText("+ New workstream"));
+    fireEvent.change(screen.getByLabelText("Workstream title"), { target: { value: "Work in place" } });
+    fireEvent.change(screen.getByLabelText("Repo path"), { target: { value: "C:\\repos\\my-project" } });
+    fireEvent.click(screen.getByText("Use an isolated git worktree (recommended)"));
+    fireEvent.click(screen.getByText("Create workstream"));
+
+    await waitFor(() =>
+      expect(apiClient.createWorkstream).toHaveBeenCalledWith({
+        agent_id: "ag1",
+        title: "Work in place",
+        goal_md: "",
+        workspace_ref: { kind: "plain_dir", path: "C:\\repos\\my-project" },
+      })
+    );
+  });
+
   it("creates a workstream without a repo path — no workspace_ref sent", async () => {
     vi.mocked(apiClient.createWorkstream).mockResolvedValue({ id: "ws-new2" });
     renderPage();

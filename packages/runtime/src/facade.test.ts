@@ -122,6 +122,47 @@ describe("createRuntime — the contracts.md Runtime facade", () => {
     expect(store.runs.get(orphaned.id)?.state).toBe("completed");
   });
 
+  it("workspace_ref plain_dir with an existing path is used directly, not a scratch copy", async () => {
+    const { store, runtime, agentId } = setup();
+    const realFolder = mkdtempSync(join(tmpdir(), "foundry-plain-dir-"));
+    const ws = store.commands.createWorkstream({
+      agent_id: agentId,
+      title: "Work directly in my repo",
+      goal_md: "no isolation, please",
+      origin: "human",
+      budget: ZERO_BUDGET,
+      workspace_ref: { kind: "plain_dir", path: realFolder },
+    }).id;
+
+    const run = runtime.enqueue({ workstreamId: ws, trigger: "human_message" });
+    await idle(runtime);
+
+    expect(store.runs.get(run.id)?.state).toBe("completed");
+    // No scratch dir was created for this workstream — the real folder was used as-is.
+    expect(existsSync(join(dir!, "workspaces", `scratch-${ws}`))).toBe(false);
+
+    rmSync(realFolder, { recursive: true, force: true });
+  });
+
+  it("workspace_ref plain_dir with a missing path refuses the run with a clear reason", async () => {
+    const { store, runtime, agentId } = setup();
+    const missingFolder = join(tmpdir(), "foundry-plain-dir-does-not-exist");
+    const ws = store.commands.createWorkstream({
+      agent_id: agentId,
+      title: "Points at nothing",
+      goal_md: "should refuse",
+      origin: "human",
+      budget: ZERO_BUDGET,
+      workspace_ref: { kind: "plain_dir", path: missingFolder },
+    }).id;
+
+    const run = runtime.enqueue({ workstreamId: ws, trigger: "human_message" });
+    await idle(runtime);
+
+    const finished = store.runs.get(run.id);
+    expect(finished?.state).toBe("cancelled");
+  });
+
   it("releaseWorkspace removes the workstream's scratch dir", async () => {
     const { runtime, ws } = setup();
     const run = runtime.enqueue({ workstreamId: ws, trigger: "human_message" });
