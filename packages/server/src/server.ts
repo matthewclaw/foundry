@@ -9,6 +9,8 @@
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { createStore, type Store, computeAgentStatusFacts } from "@foundry/store";
 import { createRuntime, type AdapterRegistry, type Runtime, type RunQueueLimits } from "@foundry/runtime";
 import { composeContext } from "./context/compose.js";
@@ -25,6 +27,7 @@ import { registerOrgToolRoutes } from "./routes/orgtools.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerApprovalRoutes } from "./routes/approvals.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
+import { registerClaudeSessionRoutes } from "./routes/claudeSessions.js";
 
 export interface ServerConfig {
   dataDir: string;
@@ -38,6 +41,10 @@ export interface ServerConfig {
   defaultStallMs?: number;
   /** E8.3: Interval to sweep expired questions (default 1 hour). */
   questionExpiryIntervalMs?: number;
+  /** Root of Claude Code's own on-disk session transcripts, for the read-only
+   * /api/claude-sessions browser. Defaults to `~/.claude/projects`; overridable so tests
+   * can point at a fixture tree instead of the real machine's home directory. */
+  claudeSessionsRoot?: string;
 }
 
 export interface FoundryServer {
@@ -188,6 +195,7 @@ export function createServer(config: ServerConfig): FoundryServer {
     store,
     runtime,
     tokens,
+    claudeSessionsRoot: config.claudeSessionsRoot ?? join(homedir(), ".claude", "projects"),
     onRunSettled: (runId, cb) => {
       const list = runSettled.get(runId) ?? [];
       list.push(cb);
@@ -200,6 +208,7 @@ export function createServer(config: ServerConfig): FoundryServer {
   registerQueryRoutes(app, ctx);
   registerFeedRoutes(app, ctx);
   registerOrgToolRoutes(app, ctx);
+  registerClaudeSessionRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
   registerApprovalRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
@@ -257,6 +266,8 @@ export interface RouteContext {
   runtime: Runtime;
   /** E6.1: per-run org-tools credentials (mint on run start, dead at run end). */
   tokens: TokenRegistry;
+  /** Root of Claude Code's own on-disk session transcripts (see `claudeSessions/discover.ts`). */
+  claudeSessionsRoot: string;
   /** One-shot callback when a run's execute settles (E11.3 close-after-distillation). */
   onRunSettled(runId: string, cb: () => void): void;
 }

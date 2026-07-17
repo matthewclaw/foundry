@@ -1,5 +1,14 @@
 /** E7.1/E7.3/E7.4 — Typed fetch helpers for the API (contracts.md). Throw on !ok. */
-import type { OrgView, InboxItem, AgentPageDto, Timeline, CostReport, TreeView } from "./types.js";
+import type {
+  OrgView,
+  InboxItem,
+  AgentPageDto,
+  Timeline,
+  CostReport,
+  TreeView,
+  ClaudeSessionGroupDto,
+  ClaudeSessionDetailDto,
+} from "./types.js";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, init);
@@ -62,4 +71,14 @@ export const apiClient = {
   createTeam: (body: CreateTeamBody) => request<{ id: string; name: string }>("/teams", json("POST", body)),
   createWorkstream: (body: CreateWorkstreamBody) =>
     request<{ id: string }>("/workstreams", json("POST", { ...body, budget: {} })),
+  getClaudeSessions: () => request<{ groups: ClaudeSessionGroupDto[] }>("/claude-sessions"),
+  getClaudeSessionDetail: (projectDir: string, sessionId: string) =>
+    request<ClaudeSessionDetailDto>(
+      `/claude-sessions/${encodeURIComponent(projectDir)}/${encodeURIComponent(sessionId)}`
+    ),
+  revealClaudeSession: (projectDir: string, sessionId: string) =>
+    request<{ ok: boolean }>(
+      `/claude-sessions/${encodeURIComponent(projectDir)}/${encodeURIComponent(sessionId)}/reveal`,
+      json("POST", {})
+    ),
 };

@@ -243,7 +243,7 @@ describe("WorkstreamView", () => {
     fireEvent.click(screen.getByText("Formatted"));
     expect(screen.queryByText(/run_tool_call/)).toBeNull();
     expect(screen.getByText("Glob")).toBeTruthy();
-    expect(screen.getByText(/pattern: "README.md"/)).toBeTruthy();
+    expect(screen.getByText(/"pattern": "README.md"/)).toBeTruthy();
     expect(screen.getByText(/5 in \/ 199 out/)).toBeTruthy();
     expect(screen.getByText(/\$0\.0802/)).toBeTruthy();
 

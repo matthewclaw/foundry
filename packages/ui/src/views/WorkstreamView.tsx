@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Markdown from "react-markdown";
 import { apiClient } from "../api/client.js";
 import { connectFeed } from "../api/sse.js";
 import type { FeedEvent, TimelineRunEntry } from "../api/types.js";
@@ -73,26 +74,52 @@ function formatToolArgs(input: unknown): string {
     .join(", ");
 }
 
-function FormattedEventLine({ event }: { event: TimelineRunEntry["events"][number] }) {
+function FormattedEventLine({ event, allEvents }: { event: TimelineRunEntry["events"][number], allEvents: TimelineRunEntry["events"] }) {
   if (event.type === "run_usage_updated") {
     const u = event.payload as { tokens_in?: number; tokens_out?: number; cost_usd?: number } | null;
     return (
       <li className="text-xs text-gray-500">
-        🪙 {u?.tokens_in ?? 0} in / {u?.tokens_out ?? 0} out
+        {u?.tokens_in ?? 0} in / {u?.tokens_out ?? 0} out
         {u?.cost_usd !== undefined && ` — $${u.cost_usd.toFixed(4)}`}
       </li>
     );
   }
-  const p = event.payload as { name?: string; detail?: { input?: unknown } } | null;
-  const argSummary = p?.detail?.input ? formatToolArgs(p.detail.input) : "";
-  return (
+   return FormatToolEventLine(event, allEvents.filter(e => e.type === "run_tool_call"));
+}
+function mapToolEventPayload(payload: unknown) {
+  return (payload as {
+    name: string,
+    phase: "start",
+    detail: { id: string, input: unknown }
+  } | {
+    name: string,
+    phase: "end",
+    detail: { id: string, is_error: boolean }
+  } | {
+    name: string,
+    phase: string,
+    detail: Record<string, unknown> & { id: string }
+  })
+}
+function FormatToolEventLine(event: TimelineRunEntry["events"][number], toolEvents: TimelineRunEntry["events"]) {
+  let toolState: '⏳' | '✅' | '❌' | '❗' = '⏳';
+  const mainEventPayload = mapToolEventPayload(event.payload);
+  const toolPayloads = (toolEvents.map(e => mapToolEventPayload(e.payload)))
+    .filter(p => p.detail.id === mainEventPayload.detail.id);
+  const endIdx = toolPayloads.findIndex(p => p.phase === 'end');
+  if (endIdx > -1) {
+    toolState = toolPayloads[endIdx]?.phase === 'end' && toolPayloads[endIdx]?.detail.is_error ? '❌' : '✅';
+  }
+  const args = mainEventPayload.phase=='start' && mainEventPayload?.detail?.input ? mainEventPayload.detail.input : {};
+  console.log('raw',args);
+  console.log('stringified',JSON.stringify(args, null, 2));
+    return (
     <li className="text-xs text-gray-600">
-      🔧 <span className="font-medium text-gray-800">{p?.name ?? "tool"}</span>
-      {argSummary && <span className="text-gray-400"> — {argSummary}</span>}
+      <details><summary>{toolState} <span className="font-medium text-gray-800">{mainEventPayload?.name ?? "tool"}</span></summary>
+      {args && <pre><code className="text-gray-400">{JSON.stringify(args, null, 2)}</code></pre>}</details>
     </li>
   );
 }
-
 /** One turn within a conversation: the message that started it, its tool activity, and
  * its response. Not independently collapsible — the whole conversation expands as one. */
 function TurnBlock({
@@ -111,23 +138,11 @@ function TurnBlock({
   const message = triggerMessageText(entry.events);
 
   return (
-    <div className="mb-4 last:mb-0">
-      <div className="flex items-center gap-2 mb-2 text-xs text-gray-500">
-        <span>{run.trigger}</span>
-        <span>{run.state}</span>
-        {isLive && (
-          <span className="text-green-700 bg-green-50 px-1.5 py-0.5 rounded animate-pulse">● live</span>
-        )}
-        {run.ended_at && <span>ended {run.ended_at}</span>}
-        {cost !== undefined && <span>${cost.toFixed(4)}</span>}
-        {entry.transcriptSource === "none" && (
-          <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">limited engine detail</span>
-        )}
-      </div>
+    <div className="mb-4">
       {message && (
-        <div className="mb-2 text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded p-2">
+        <div className="mb-2 text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded p-2 prose prose-sm max-w-none">
           <span className="text-xs text-gray-500 mr-1">💬 message:</span>
-          {message}
+          <Markdown>{message}</Markdown>
         </div>
       )}
       {view === "raw" && entry.events.length > 0 && (
@@ -142,7 +157,7 @@ function TurnBlock({
       {view === "formatted" && formattedEvents(entry.events).length > 0 && (
         <ul className="mb-2 space-y-1">
           {formattedEvents(entry.events).map((e) => (
-            <FormattedEventLine key={e.seq} event={e} />
+            <FormattedEventLine key={e.seq} event={e} allEvents={entry.events} />
           ))}
         </ul>
       )}
@@ -164,16 +179,28 @@ function TurnBlock({
             </pre>
           </div>
         ) : (
-          <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed bg-blue-50 border border-blue-100 rounded p-3">
-            {text || "…"}
+          <div className="text-sm text-gray-800 leading-relaxed bg-blue-50 border border-blue-100 rounded p-3 prose prose-sm max-w-none">
+            {text ? <Markdown>{text}</Markdown> : "…"}
             {isLive && <span className="animate-pulse">▊</span>}
           </div>
         )
-      ) : (
+      ) : (run.ended_at &&
         <p className="text-xs text-amber-700">
           No transcript available — this engine reported limited detail for this run (capability degradation, ADR-003).
         </p>
       )}
+      <div className="flex items-center gap-2 mb-2 text-xs text-gray-500">
+        <span>{run.trigger}</span>
+        <span>{run.state}</span>
+        {isLive && (
+          <span className="text-green-700 bg-green-50 px-1.5 py-0.5 rounded animate-pulse">● live</span>
+        )}
+        {run.ended_at && <span>ended {run.ended_at}</span>}
+        {cost !== undefined && <span>${cost.toFixed(4)}</span>}
+        {entry.transcriptSource === "none" && (
+          <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">limited engine detail</span>
+        )}
+      </div>
     </div>
   );
 }

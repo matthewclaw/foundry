@@ -20,6 +20,7 @@ import WorkstreamView from "./views/WorkstreamView.js";
 import Inbox from "./views/Inbox.js";
 import CostView from "./views/CostView.js";
 import TaskTreeView from "./views/TaskTreeView.js";
+import ClaudeSessionsView from "./views/ClaudeSessionsView.js";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -58,6 +59,9 @@ function LeftRail() {
           </NavLink>
           <NavLink to="/cost" className={railLink}>
             Cost
+          </NavLink>
+          <NavLink to="/claude-sessions" className={railLink}>
+            Claude Sessions
           </NavLink>
         </div>
         {org?.teams && org.teams.map((team: OrgViewTeam) => (
@@ -101,6 +105,7 @@ export default function App() {
             <Route path="/tasks/:id/tree" element={<TaskTreeView />} />
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/cost" element={<CostView />} />
+            <Route path="/claude-sessions" element={<ClaudeSessionsView />} />
           </Route>
         </Routes>
       </BrowserRouter>

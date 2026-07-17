@@ -18,6 +18,8 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:watch": "tsc -p tsconfig.json --watch",
+    "dev": "node --watch dist/daemon.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

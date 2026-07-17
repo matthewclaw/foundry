@@ -158,3 +158,39 @@ export interface TreeNode {
 export interface TreeView {
   root: TreeNode | undefined;
 }
+
+/**
+ * Claude Code's own on-disk session transcripts, browsed read-only (GET
+ * /api/claude-sessions, packages/server/src/claudeSessions/discover.ts) — entirely
+ * separate from Foundry's own runs/workstreams.
+ */
+export interface ClaudeSessionSummaryDto {
+  id: string;
+  filePath: string;
+  startedAtMs: number | null;
+  mtimeMs: number;
+  sizeBytes: number;
+  preview: string | null;
+}
+
+export interface ClaudeSessionGroupDto {
+  projectDir: string;
+  repoPath: string;
+  repoPathResolved: boolean;
+  lastActiveAtMs: number;
+  sessions: ClaudeSessionSummaryDto[];
+}
+
+export interface ClaudeSessionTurnDto {
+  role: "user" | "assistant";
+  text: string;
+  timestamp: string | null;
+}
+
+export interface ClaudeSessionDetailDto {
+  id: string;
+  projectDir: string;
+  mtimeMs: number;
+  sizeBytes: number;
+  turns: ClaudeSessionTurnDto[];
+}
