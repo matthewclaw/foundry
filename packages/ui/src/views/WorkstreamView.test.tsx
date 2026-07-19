@@ -154,6 +154,33 @@ describe("WorkstreamView", () => {
     expect(screen.getByText("$0.5200")).toBeTruthy();
   });
 
+  it("keeps an in-flight, not-yet-sessioned turn inside the current conversation (no flash)", async () => {
+    // A just-sent reply/interactive turn has no engine_session_id until run_started —
+    // it must render inside the conversation it's continuing, not as a throwaway card.
+    const pendingTurn: TimelineRunEntry = {
+      run: {
+        id: "run2",
+        seq: 2,
+        trigger: "interactive_message",
+        state: "running",
+        started_at: "2026-07-01T10:10:00Z",
+        ended_at: null,
+        usage: null,
+        engine_session_id: null, // not assigned yet
+        title: null,
+      },
+      events: [{ seq: 20, type: "run_queued", payload: { trigger: "interactive_message", message_md: "one more thing" } }],
+      transcriptText: null,
+      transcriptSource: "live",
+    };
+    renderView({ workstreamId: "ws1", runs: [run1, pendingTurn] });
+
+    await screen.findAllByText(/Fix the auth module/);
+    // Single conversation card, two turns — the pending turn folded in, not a second card.
+    expect(screen.getAllByTestId("conversation-card")).toHaveLength(1);
+    expect(screen.getByText("2 turns")).toBeTruthy();
+  });
+
   it("a run with a different session id starts a new, separate conversation card", async () => {
     renderView({ workstreamId: "ws1", runs: [run1, run2SameConvo, run3NewConvo] });
 

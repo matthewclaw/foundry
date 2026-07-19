@@ -196,11 +196,16 @@ function skillsSection(dataDir: string, agent: Agent): string {
   const lines = [
     "# Skills",
     "",
+    "You keep every native capability of your engine — its built-in tools, slash commands,",
+    "and any globally installed skills or plugins. Those are always available; nothing here",
+    "removes them. The directory below is an *additional*, org-specific skill set you curate",
+    "yourself — treat it as extra, not as the full list of what you can do.",
+    "",
     `Your skills directory: \`${skillsDir}\``,
   ];
 
   if (skills.length === 0) {
-    lines.push("", "(no skills yet — add them as SKILL.md files in subdirectories here)");
+    lines.push("", "(no org-specific skills yet — add them as SKILL.md files in subdirectories here)");
   } else {
     lines.push("");
     for (const skill of skills) {

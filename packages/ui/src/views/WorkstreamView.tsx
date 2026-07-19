@@ -62,8 +62,18 @@ function groupIntoConversations(runs: TimelineRunEntry[]): TimelineRunEntry[][] 
     const sessionId = entry.run.engine_session_id;
     const prevGroup = groups[groups.length - 1];
     const prevEntry = prevGroup?.[prevGroup.length - 1];
-    if (prevEntry && sessionId && prevEntry.run.engine_session_id === sessionId) {
-      prevGroup.push(entry);
+    // A fresh turn (reply or interactive) only gets its engine_session_id on run_started,
+    // so while it's still in flight it has none yet. Without this it would render as a
+    // throwaway card and then jump back into its conversation once the id lands. Treat an
+    // in-flight, session-less run as a continuation of the established conversation above
+    // it. (A genuine "+ New conversation" — rarer — briefly shares that card until
+    // run_started reveals its distinct session, then splits out.)
+    const continuesPrev =
+      !!prevEntry &&
+      ((sessionId && prevEntry.run.engine_session_id === sessionId) ||
+        (!sessionId && RUN_NONTERMINAL_STATES.has(entry.run.state) && !!prevEntry.run.engine_session_id));
+    if (continuesPrev) {
+      prevGroup!.push(entry);
     } else {
       groups.push([entry]);
     }
@@ -330,14 +340,18 @@ function MessageComposer({ workstreamId, live }: { workstreamId: string; live: I
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+          // Shift+Enter (or ⌘/Ctrl+Enter) sends; plain Enter keeps inserting a newline.
+          if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          }
         }}
         disabled={disabled}
       />
       <div className="mt-2 flex items-center gap-3">
         <Button variant="primary" size="sm" disabled={disabled || !text.trim()} onClick={submit}>
           {!live && send.isPending ? "Sending…" : "Send"}
-          <span className="ml-1 text-[10px] opacity-60">⌘↵</span>
+          <span className="ml-1 text-[10px] opacity-60">⇧↵</span>
         </Button>
         {send.error && <ErrorText error={send.error} />}
       </div>
@@ -580,6 +594,12 @@ function NewConversationForm({ workstreamId, onDone }: { workstreamId: string; o
           placeholder="Say something to this agent to start a fresh conversation…"
           value={body}
           onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              if (body.trim()) send.mutate(body);
+            }
+          }}
           disabled={send.isPending}
         />
         <div className="mt-2 flex items-center gap-3">

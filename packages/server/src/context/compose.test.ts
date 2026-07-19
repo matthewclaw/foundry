@@ -180,9 +180,14 @@ machine-readable codes you can react to.
 
 # Skills
 
+You keep every native capability of your engine — its built-in tools, slash commands,
+and any globally installed skills or plugins. Those are always available; nothing here
+removes them. The directory below is an *additional*, org-specific skill set you curate
+yourself — treat it as extra, not as the full list of what you can do.
+
 Your skills directory: \`<dataDir>/agents/orbit/skills\`
 
-(no skills yet — add them as SKILL.md files in subdirectories here)
+(no org-specific skills yet — add them as SKILL.md files in subdirectories here)
 
 # Workspace
 
@@ -247,7 +252,7 @@ You are a lazy senior developer...`,
     // Skills directory doesn't exist yet
     const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f }), f);
     expect(text).toContain("# Skills\n");
-    expect(text).toContain("(no skills yet — add them as SKILL.md files in subdirectories here)");
+    expect(text).toContain("(no org-specific skills yet — add them as SKILL.md files in subdirectories here)");
   });
 
   it("skips malformed skills when rendering Skills section", () => {
