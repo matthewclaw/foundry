@@ -277,11 +277,27 @@ function MessageComposer({ workstreamId, live }: { workstreamId: string; live: I
   const liveDisconnected = live !== null && (live.status === "error" || live.status === "closed");
   const disabled = live !== null ? liveDisconnected : send.isPending;
 
+  // While attached to a live session, interactive turns arrive only over the SSE feed —
+  // which a dev proxy can buffer, and which (unlike the headless POST) has no send-time
+  // refetch to fall back on. Poll the timeline so a live turn's message and streaming
+  // response appear without a manual refresh. Stops the moment you exit live.
+  const liveActive = live !== null && !liveDisconnected;
+  useEffect(() => {
+    if (!liveActive) return;
+    const timer = setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: ["timeline", workstreamId] });
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [liveActive, workstreamId, queryClient]);
+
   const submit = () => {
     if (!text.trim()) return;
     if (live !== null) {
       live.send(text.trim());
       setText("");
+      // Kick an immediate refetch so the just-sent turn's run row (with the message)
+      // surfaces right away; the poll above then keeps it fresh as the response streams.
+      void queryClient.invalidateQueries({ queryKey: ["timeline", workstreamId] });
     } else {
       send.mutate(text.trim());
     }

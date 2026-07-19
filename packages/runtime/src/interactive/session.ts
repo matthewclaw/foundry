@@ -68,6 +68,10 @@ export function createInteractiveSessionManager(opts: InteractiveSessionManagerO
           trigger: "interactive_message",
           input_context_ref: "(interactive)",
           engine_id: opts.resolve(workstreamId).agent.engine.id,
+          // Carry the user's text on the run_queued event so the timeline can show what
+          // was actually said — same field the headless path sets, so an interactive turn
+          // renders its own message bubble instead of appearing to come from nowhere.
+          trigger_message_md: text,
         });
         opts.store.commands.transitionRunState({ id: run.id, workstreamId, to: "starting", actorId: null });
         entry.currentRun = run;

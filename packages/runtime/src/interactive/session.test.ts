@@ -209,6 +209,11 @@ describe("createInteractiveSessionManager — E13", () => {
     expect(sendResult).toEqual({ ok: true });
     expect(session.sent).toEqual(["hello"]);
 
+    // The user's text is recorded on the run_queued event so the timeline can render it
+    // as the turn's message (not appear out of nowhere).
+    const queued = store.events.after(0).find((e) => e.type === "run_queued" && e.payload && (e.payload as { message_md?: string }).message_md === "hello");
+    expect(queued).toBeDefined();
+
     session.push({ t: "run_started", sessionRef: "sess-1" });
     session.push({ t: "output_delta", text: "hi there" });
     session.push({ t: "run_ended", outcome: "completed", finalText: "hi there", sessionRef: "sess-1" });
