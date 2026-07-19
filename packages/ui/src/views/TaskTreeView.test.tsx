@@ -145,11 +145,11 @@ describe("TaskTreeView", () => {
     // Check that "rejected" badge is rendered
     expect(screen.getByText("rejected")).toBeTruthy();
 
-    // The rejected node should have the red-50 background class (from component)
+    // The rejected node should have the bg-red-900/20 background class (from component)
     const allDivs = document.querySelectorAll("div");
     let foundEscalationRow = false;
     allDivs.forEach((div) => {
-      if (div.textContent?.includes("Child 2 specification") && div.className?.includes("bg-red-50")) {
+      if (div.textContent?.includes("Child 2 specification") && div.className?.includes("bg-red-900/20")) {
         foundEscalationRow = true;
       }
     });

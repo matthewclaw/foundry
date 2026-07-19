@@ -150,6 +150,12 @@ function triggerSection(store: Store, run: Run, workstream: Workstream, agent: A
     case "schedule":
       lines.push("This run was triggered by your schedule. Review the workstream and act on anything that needs attention.");
       break;
+    case "interactive_message":
+      // E13 "drop in": these turns never call composeContext — the message goes
+      // straight into the already-attached session's stdin, not through a freshly
+      // composed context file. This case only exists so the switch stays exhaustive.
+      lines.push("A human is talking to you live in an interactive session.");
+      break;
   }
   return lines.join("\n");
 }

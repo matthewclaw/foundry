@@ -33,15 +33,15 @@ function StatBlock({
   const percentage = limit === null ? 0 : Math.min(100, (spent / limit) * 100);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
       <div className="flex justify-between items-baseline mb-2">
-        <h2 className="font-semibold text-gray-800">{label}</h2>
-        <span className="text-sm text-gray-600">
+        <h2 className="font-semibold text-gray-100">{label}</h2>
+        <span className="text-sm text-gray-400">
           {format(spent)} / {limitText}
         </span>
       </div>
       {limit !== null && (
-        <div className="w-full bg-gray-200 rounded-full h-2">
+        <div className="w-full bg-gray-800 rounded-full h-2">
           <div
             className={`h-2 rounded-full transition-all ${
               percentage > 80 ? "bg-red-600" : percentage > 50 ? "bg-amber-600" : "bg-green-600"
@@ -61,21 +61,21 @@ function CostBreakdownTable({ breakdown }: { breakdown: CostReport["breakdown"] 
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 overflow-x-auto">
+    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-200">
-            <th className="text-left py-2 px-2 font-semibold text-gray-700">Label</th>
-            <th className="text-right py-2 px-2 font-semibold text-gray-700">USD Spent</th>
-            <th className="text-right py-2 px-2 font-semibold text-gray-700">Tokens Spent</th>
+          <tr className="border-b border-gray-800">
+            <th className="text-left py-2 px-2 font-semibold text-gray-500">Label</th>
+            <th className="text-right py-2 px-2 font-semibold text-gray-500">USD Spent</th>
+            <th className="text-right py-2 px-2 font-semibold text-gray-500">Tokens Spent</th>
           </tr>
         </thead>
         <tbody>
           {breakdown.map((row, idx) => (
-            <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
-              <td className="py-2 px-2 text-gray-900">{row.label}</td>
-              <td className="py-2 px-2 text-right text-gray-800">{formatUsd(row.spent_usd)}</td>
-              <td className="py-2 px-2 text-right text-gray-800">{formatTokens(row.spent_tokens)}</td>
+            <tr key={idx} className="border-b border-gray-800 hover:bg-gray-800/50">
+              <td className="py-2 px-2 text-gray-100">{row.label}</td>
+              <td className="py-2 px-2 text-right text-gray-200">{formatUsd(row.spent_usd)}</td>
+              <td className="py-2 px-2 text-right text-gray-200">{formatTokens(row.spent_tokens)}</td>
             </tr>
           ))}
         </tbody>
@@ -92,13 +92,15 @@ export default function CostView() {
 
   if (isLoading) return <div className="p-6 text-gray-500">Loading cost…</div>;
   if (error)
-    return <div className="p-6 text-red-600">Error: {error instanceof Error ? error.message : String(error)}</div>;
+    return <div className="p-6 text-red-400">Error: {error instanceof Error ? error.message : String(error)}</div>;
   if (!data) return null;
 
   return (
     <div className="p-6 max-w-3xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Cost</h1>
-      <p className="text-sm text-gray-600 mb-6">
+      <h1 className="text-2xl font-bold text-gray-100 mb-1">
+        <span className="text-green-500">$</span> Cost
+      </h1>
+      <p className="text-sm text-gray-400 mb-6">
         Org-wide spend and limits
       </p>
 
@@ -106,7 +108,7 @@ export default function CostView() {
       <StatBlock label="Tokens Spent" spent={data.spent_tokens} limit={data.limit_tokens} format={formatTokens} />
 
       <div className="mt-6">
-        <h2 className="font-semibold text-gray-800 mb-4">Breakdown</h2>
+        <h2 className="font-semibold text-gray-100 mb-4">Breakdown</h2>
         <CostBreakdownTable breakdown={data.breakdown} />
       </div>
     </div>

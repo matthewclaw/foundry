@@ -14,8 +14,16 @@ import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from "node:c
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
-import type { CapabilitySet, EngineEvent, ExecutionAdapter, RunHandle, RunSpec } from "@foundry/adapter-api";
+import type {
+  CapabilitySet,
+  EngineEvent,
+  ExecutionAdapter,
+  InteractiveEngineSession,
+  RunHandle,
+  RunSpec,
+} from "@foundry/adapter-api";
 import { mapLine, newMapperState } from "./stream.js";
+import { spawnInteractiveClaudeSession } from "./interactive.js";
 
 export const ClaudeCodeConfigSchema = z.object({
   /** Executable to spawn — the real `claude`, or a fixture-replay script in tests. */
@@ -49,6 +57,7 @@ const CAPABILITIES: CapabilitySet = {
   reasoning_summaries: false,
   permission_hooks: false,
   mcp: true,
+  interactive: true,
 };
 
 export class ClaudeCodeAdapter implements ExecutionAdapter {
@@ -71,6 +80,10 @@ export class ClaudeCodeAdapter implements ExecutionAdapter {
 
   async resume(spec: RunSpec & { sessionRef: string }): Promise<RunHandle> {
     return this.spawnRun(spec, ["--resume", spec.sessionRef]);
+  }
+
+  async attachInteractive(spec: RunSpec & { sessionRef?: string }): Promise<InteractiveEngineSession> {
+    return spawnInteractiveClaudeSession(spec, this.defaults);
   }
 
   async cancel(handle: RunHandle): Promise<void> {

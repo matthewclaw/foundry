@@ -8,6 +8,7 @@
  * free of engine specifics per contracts.md.
  */
 import Fastify, { type FastifyInstance } from "fastify";
+import fastifyWebsocket from "@fastify/websocket";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +29,7 @@ import { registerAdminRoutes } from "./routes/admin.js";
 import { registerApprovalRoutes } from "./routes/approvals.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import { registerClaudeSessionRoutes } from "./routes/claudeSessions.js";
+import { registerInteractiveRoutes } from "./routes/interactive.js";
 
 export interface ServerConfig {
   dataDir: string;
@@ -212,6 +214,17 @@ export function createServer(config: ServerConfig): FoundryServer {
   registerAdminRoutes(app, ctx);
   registerApprovalRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
+  // `.get(..., {websocket:true}, ...)` only works once @fastify/websocket's own
+  // `onRoute` hook is installed — but `.register()` is queued for the async avvio boot
+  // sequence while plain `.get()` calls run synchronously/immediately, so registering
+  // the plugin at the top level (like every other route module above) and then just
+  // calling `.get()` would define the route *before* the plugin's hook exists. Nesting
+  // both in one `.register()` call forces fastify to await the plugin's boot before
+  // running the route registration inside it.
+  void app.register(async (instance) => {
+    await instance.register(fastifyWebsocket);
+    registerInteractiveRoutes(instance, ctx);
+  });
 
   return {
     app,

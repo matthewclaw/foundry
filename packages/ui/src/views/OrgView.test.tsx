@@ -9,7 +9,7 @@ import type { OrgView, OrgViewAgent, OrgViewTeam, AgentStatus } from "../api/typ
 import OrgViewComponent, { statusBadge } from "./OrgView.js";
 
 vi.mock("../api/client.js", () => ({
-  apiClient: { getOrg: vi.fn(), createTeam: vi.fn(), createAgent: vi.fn() },
+  apiClient: { getOrg: vi.fn(), createTeam: vi.fn(), createAgent: vi.fn(), patchTeam: vi.fn(), deleteTeam: vi.fn() },
 }));
 import { apiClient } from "../api/client.js";
 
@@ -17,12 +17,12 @@ const PRECEDENCE: AgentStatus[] = ["blocked", "degraded", "waiting", "active", "
 
 describe("statusBadge", () => {
   it("maps all six statuses to the right Tailwind classes", () => {
-    expect(statusBadge("blocked").classes).toContain("bg-red-100");
-    expect(statusBadge("degraded").classes).toContain("bg-orange-100");
-    expect(statusBadge("waiting").classes).toContain("bg-amber-100");
-    expect(statusBadge("active").classes).toContain("bg-green-100");
-    expect(statusBadge("over-committed").classes).toContain("bg-purple-100");
-    expect(statusBadge("idle").classes).toContain("bg-gray-100");
+    expect(statusBadge("blocked").classes).toContain("bg-red-900/40");
+    expect(statusBadge("degraded").classes).toContain("bg-orange-900/40");
+    expect(statusBadge("waiting").classes).toContain("bg-amber-900/40");
+    expect(statusBadge("active").classes).toContain("bg-green-900/40");
+    expect(statusBadge("over-committed").classes).toContain("bg-purple-900/40");
+    expect(statusBadge("idle").classes).toContain("bg-gray-800");
   });
 
   it("ranks follow doc-02 precedence: blocked > degraded > waiting > active > over-committed > idle", () => {
@@ -154,5 +154,65 @@ describe("OrgView", () => {
         engine: { id: "fake" },
       })
     );
+  });
+
+  it("renames a team via the edit control", async () => {
+    const fixture: OrgView = {
+      teams: [{ id: "team-1" as OrgViewTeam["id"], name: "Platform", status: "idle", agents: [] }],
+      unassignedAgents: [],
+    };
+    vi.mocked(apiClient.getOrg).mockResolvedValue(fixture);
+    vi.mocked(apiClient.patchTeam).mockResolvedValue({ id: "team-1", name: "Core Platform", description: "" });
+    renderOrgView();
+
+    await screen.findByText("Platform");
+    fireEvent.click(screen.getByText("✎"));
+    fireEvent.change(screen.getByLabelText("Team name"), { target: { value: "Core Platform" } });
+    fireEvent.click(screen.getByText("Save"));
+
+    await waitFor(() => expect(apiClient.patchTeam).toHaveBeenCalledWith("team-1", { name: "Core Platform" }));
+  });
+
+  it("deletes a team after confirming, but not if the confirm is cancelled", async () => {
+    const fixture: OrgView = {
+      teams: [{ id: "team-1" as OrgViewTeam["id"], name: "Platform", status: "idle", agents: [] }],
+      unassignedAgents: [],
+    };
+    vi.mocked(apiClient.getOrg).mockResolvedValue(fixture);
+    vi.mocked(apiClient.deleteTeam).mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    renderOrgView();
+
+    await screen.findByText("Platform");
+    fireEvent.click(screen.getByText("Delete"));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(apiClient.deleteTeam).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Delete"));
+    await waitFor(() => expect(apiClient.deleteTeam).toHaveBeenCalledWith("team-1"));
+
+    confirmSpy.mockRestore();
+  });
+
+  it("does not show rename/delete controls on the synthetic Unassigned bucket", async () => {
+    const fixture: OrgView = {
+      teams: [],
+      unassignedAgents: [
+        {
+          id: "a1" as OrgViewAgent["id"],
+          name: "Loner",
+          role: "Agent",
+          team_id: null,
+          state: "active",
+          status: "idle",
+        },
+      ],
+    };
+    vi.mocked(apiClient.getOrg).mockResolvedValue(fixture);
+    renderOrgView();
+
+    await screen.findByText("Unassigned");
+    expect(screen.queryByText("✎")).toBeNull();
+    expect(screen.queryByText("Delete")).toBeNull();
   });
 });

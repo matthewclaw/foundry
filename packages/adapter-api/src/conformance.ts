@@ -234,5 +234,15 @@ export function describeAdapterContract(makeAdapter: ConformanceAdapterFactory):
       const resumedEvents = await collectEvents(adapter, resumeHandle);
       assertWellFormedStream(resumedEvents);
     });
+
+    it("attachInteractive(): present iff capabilities().interactive is declared", async () => {
+      const adapter = await makeAdapter({ outcome: "completed" });
+      const capabilities = adapter.capabilities();
+      if (!capabilities.interactive) {
+        expect(adapter.attachInteractive).toBeUndefined();
+        return;
+      }
+      expect(typeof adapter.attachInteractive).toBe("function");
+    });
   });
 }

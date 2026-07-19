@@ -19,13 +19,15 @@ afterEach(() => {
   dir = undefined;
 });
 
-/** Mirrors Claude Code's own encoding: drive letter + colon + backslash → `--`, every
- * other path separator → `-`. Real repo names containing literal hyphens are what make
- * this lossy (see decodeProjectDir's doc comment) — deliberately exercised below. */
+/** Mirrors Claude Code's own encoding: on Windows, drive letter + colon + backslash →
+ * `--`, every other path separator → `-`; on POSIX, the leading `/` → `-`, every other
+ * `/` → `-`. Real repo names containing literal hyphens are what make this lossy (see
+ * decodeProjectDir's doc comment) — deliberately exercised below. */
 function encodePath(absPath: string): string {
   const driveMatch = /^([A-Za-z]):\\(.*)$/.exec(absPath);
-  if (!driveMatch) throw new Error(`expected an absolute Windows path, got: ${absPath}`);
-  return `${driveMatch[1]}--${(driveMatch[2] ?? "").replaceAll("\\", "-")}`;
+  if (driveMatch) return `${driveMatch[1]}--${(driveMatch[2] ?? "").replaceAll("\\", "-")}`;
+  if (absPath.startsWith("/")) return `-${absPath.slice(1).replaceAll("/", "-")}`;
+  throw new Error(`expected an absolute path, got: ${absPath}`);
 }
 
 function writeJsonl(path: string, lines: Record<string, unknown>[]): void {

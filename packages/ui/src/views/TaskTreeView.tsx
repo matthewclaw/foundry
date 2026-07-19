@@ -19,13 +19,13 @@ function formatTokens(value: number): string {
 }
 
 const TASK_STATE_BADGE: Record<TaskState, { classes: string }> = {
-  pending: { classes: "bg-gray-100 text-gray-700" },
-  in_progress: { classes: "bg-blue-100 text-blue-800" },
-  blocked: { classes: "bg-red-100 text-red-800" },
-  delivered: { classes: "bg-green-100 text-green-800" },
-  done: { classes: "bg-green-100 text-green-800" },
-  rejected: { classes: "bg-red-100 text-red-800" },
-  cancelled: { classes: "bg-gray-100 text-gray-700" },
+  pending: { classes: "bg-gray-900/40 text-gray-400" },
+  in_progress: { classes: "bg-blue-900/40 text-blue-400" },
+  blocked: { classes: "bg-red-900/40 text-red-400" },
+  delivered: { classes: "bg-green-900/40 text-green-400" },
+  done: { classes: "bg-green-900/40 text-green-400" },
+  rejected: { classes: "bg-red-900/40 text-red-400" },
+  cancelled: { classes: "bg-gray-900/40 text-gray-400" },
 };
 
 function TaskBadge({ state }: { state: TaskState }) {
@@ -51,7 +51,7 @@ function BudgetMeter({
   const tokensLimitText = limit_tokens === null ? "uncapped" : formatTokens(limit_tokens);
 
   return (
-    <div className="flex gap-4 text-xs text-gray-600">
+    <div className="flex gap-4 text-xs text-gray-400">
       <span>{formatUsd(spent_usd)} / {usdLimitText}</span>
       <span>{formatTokens(spent_tokens)} / {tokensLimitText}</span>
     </div>
@@ -68,8 +68,8 @@ function TaskRow({ node }: { node: TreeNode }) {
   return (
     <>
       <div
-        className={`border-b border-gray-100 p-4 ${
-          isEscalation ? "bg-red-50 border-l-4 border-l-red-400" : ""
+        className={`border-b border-gray-800 p-4 ${
+          isEscalation ? "bg-red-900/20 border-l-4 border-l-red-500" : ""
         }`}
         style={{ paddingLeft: `${12 + indentPx}px` }}
       >
@@ -77,9 +77,9 @@ function TaskRow({ node }: { node: TreeNode }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <TaskBadge state={task.state} />
-              <span className="text-xs font-mono text-gray-500">{task.id}</span>
+              <span className="text-xs font-mono text-gray-400">{task.id}</span>
             </div>
-            <div className="text-sm text-gray-700 font-medium truncate">{task.spec_md.split("\n")[0] || "Untitled"}</div>
+            <div className="text-sm text-gray-200 font-medium truncate">{task.spec_md.split("\n")[0] || "Untitled"}</div>
           </div>
         </div>
 
@@ -90,9 +90,9 @@ function TaskRow({ node }: { node: TreeNode }) {
           limit_tokens={task.budget.limit_tokens}
         />
 
-        <div className="text-xs text-gray-500 mt-1">
+        <div className="text-xs text-gray-400 mt-1">
           Delegated by {task.delegator_actor_id} to {task.assignee_agent_id} · created {task.created_at}
-          {task.rejection_count > 0 && <span className="ml-2 text-red-600">rejected {task.rejection_count}×</span>}
+          {task.rejection_count > 0 && <span className="ml-2 text-red-400">rejected {task.rejection_count}×</span>}
         </div>
       </div>
 
@@ -112,18 +112,18 @@ export default function TaskTreeView() {
     enabled: !!id,
   });
 
-  if (isLoading) return <div className="p-6 text-gray-500">Loading task tree…</div>;
+  if (isLoading) return <div className="p-6 text-gray-400">Loading task tree…</div>;
   if (error)
-    return <div className="p-6 text-red-600">Error: {error instanceof Error ? error.message : String(error)}</div>;
+    return <div className="p-6 text-red-400">Error: {error instanceof Error ? error.message : String(error)}</div>;
   if (!data || data.root === undefined)
-    return <div className="p-6 text-gray-500">Task not found.</div>;
+    return <div className="p-6 text-gray-400">Task not found.</div>;
 
   return (
     <div className="p-6 max-w-4xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Task Tree</h1>
-      <p className="text-sm text-gray-600 mb-6">Root: {data.root.task.id}</p>
+      <h1 className="text-2xl font-bold text-gray-100 mb-1"><span className="text-green-500">$</span> Task Tree</h1>
+      <p className="text-sm text-gray-400 mb-6">Root: {data.root.task.id}</p>
 
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
         <TaskRow node={data.root} />
       </div>
     </div>

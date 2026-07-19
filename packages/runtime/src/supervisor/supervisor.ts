@@ -7,11 +7,12 @@
  * Wired as a `RunQueue`'s `execute` callback (E4.1): the queue decides *when* a job may
  * run, this decides *what happens* while it does.
  */
-import { formatRef, type Run } from "@foundry/core";
+import type { Run } from "@foundry/core";
 import type { Store } from "@foundry/store";
 import { EngineEventSchema, type EngineEvent, type ExecutionAdapter, type RunHandle, type RunSpec } from "@foundry/adapter-api";
 import type { RunQueueJob } from "../scheduler/queue.js";
 import type { PidRegistry } from "../reconcile/reconcile.js";
+import { foldEngineEvent } from "./fold.js";
 
 export interface RunSupervisorOptions {
   store: Pick<Store, "commands" | "workstreams" | "runs" | "events" | "agents">;
@@ -152,7 +153,7 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
         }
 
         if (event.t === "run_ended") sawRunEnded = true;
-        handleEvent(run, job, event);
+        foldEngineEvent(opts.store, job, run, event);
       }
     } catch {
       // Adapter stream ended abnormally (F1: process crash) — folded below, same as a
@@ -341,143 +342,6 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
       return;
     }
     throw new Error(`workstream ${job.workstreamId} is "${ws.state}", not runnable`);
-  }
-
-  function handleEvent(run: Run, job: RunQueueJob, event: EngineEvent): void {
-    switch (event.t) {
-      case "run_started":
-        opts.store.commands.transitionRunState({
-          id: run.id,
-          workstreamId: job.workstreamId,
-          to: "running",
-          actorId: null,
-          engineSessionId: event.sessionRef ?? null,
-        });
-        return;
-      case "output_delta":
-        opts.store.commands.emitRunDetailEvent({
-          entity_id: run.id,
-          type: "run_output_delta",
-          payload: { text: event.text },
-          run_id: run.id,
-          workstream_id: job.workstreamId,
-          actor_id: null,
-        });
-        return;
-      case "tool_call":
-        opts.store.commands.emitRunDetailEvent({
-          entity_id: run.id,
-          type: "run_tool_call",
-          payload: { phase: event.phase, name: event.name, detail: event.detail },
-          run_id: run.id,
-          workstream_id: job.workstreamId,
-          actor_id: null,
-        });
-        return;
-      case "usage_delta":
-        opts.store.commands.emitRunDetailEvent({
-          entity_id: run.id,
-          type: "run_usage_updated",
-          payload: {
-            tokens_in: event.tokensIn,
-            tokens_out: event.tokensOut,
-            cost_usd: event.costUsd,
-          },
-          run_id: run.id,
-          workstream_id: job.workstreamId,
-          actor_id: null,
-        });
-        return;
-      case "awaiting_input":
-        opts.store.commands.transitionRunState({
-          id: run.id,
-          workstreamId: job.workstreamId,
-          to: "awaiting_input",
-          actorId: null,
-          prompt: event.prompt,
-        });
-        opts.store.commands.transitionWorkstreamState({
-          id: job.workstreamId,
-          to: "waiting",
-          actorId: null,
-          // ponytail: no message exists yet to point this at — server/E8.3 wires a real
-          // waiting_on_ref once the question is a Message.
-          waitingOnRef: null,
-        });
-        return;
-      case "reasoning_summary":
-        // ponytail: no catalogue slot yet (E1.3 is additive-only, not extended here) —
-        // silently unreported, OPEN_ISSUES #23.
-        return;
-      case "permission_request": {
-        // E6.4: engine permission prompt → Foundry approval item. The RUN state is
-        // deliberately untouched: an engine may keep streaming past the request (its
-        // hook resolves in-process, see the fake's permission-request-granted scenario),
-        // and the async grant path schedules a *fresh* run via the approvals route.
-        const agent = job.agentId ? opts.store.agents.get(job.agentId) : undefined;
-        if (!agent) return; // no agent to attribute the request to (bare-supervisor callers)
-        const approval = opts.store.commands.requestApproval({
-          requested_by_actor: agent.actor_id,
-          kind: "engine_permission",
-          payload: {
-            request_id: event.requestId,
-            description: event.description,
-            run_id: run.id,
-            workstream_id: job.workstreamId,
-          },
-        });
-        // Make the wait visible on the workstream with a real waiting_on_ref (#25's
-        // approval case): only from `active` — if it's already waiting, keep that ref.
-        if (opts.store.workstreams.get(job.workstreamId)?.state === "active") {
-          opts.store.commands.transitionWorkstreamState({
-            id: job.workstreamId,
-            to: "waiting",
-            actorId: null,
-            waitingOnRef: formatRef("approval", approval.id),
-          });
-        }
-        return;
-      }
-      case "run_ended":
-        handleRunEnded(run, job, event);
-        return;
-    }
-  }
-
-  function handleRunEnded(run: Run, job: RunQueueJob, event: Extract<EngineEvent, { t: "run_ended" }>): void {
-    switch (event.outcome) {
-      case "completed":
-        opts.store.commands.transitionRunState({
-          id: run.id,
-          workstreamId: job.workstreamId,
-          to: "completed",
-          actorId: null,
-          result: { outcome: "completed", final_text: event.finalText ?? null, artifact_refs: [] },
-        });
-        return;
-      case "needs_input":
-        // Already folded into run/workstream state by the preceding `awaiting_input`
-        // event (per adapter-fake's own scenario contract: the two always pair up).
-        return;
-      case "failed":
-        opts.store.commands.transitionRunState({
-          id: run.id,
-          workstreamId: job.workstreamId,
-          to: "failed",
-          actorId: null,
-          error: event.error ?? "unknown error",
-        });
-        return;
-      case "cancelled":
-        opts.store.commands.transitionRunState({
-          id: run.id,
-          workstreamId: job.workstreamId,
-          to: "cancelled",
-          actorId: null,
-          reason: event.error ?? "adapter reported cancelled",
-        });
-        return;
-    }
   }
 
   return { execute };

@@ -27,6 +27,11 @@ export interface CapabilitySet {
   permission_hooks: boolean;
   /** Org-tools delivered via MCP (else CLI-shim fallback). */
   mcp: boolean;
+  /** Live multi-turn attach via `attachInteractive` (E13 "drop in") — a human can send
+   * further messages to an already-running session and get real-time turns back,
+   * instead of only ever queuing a fresh headless run. Opt-in like every other
+   * capability here: an engine that doesn't implement it just doesn't offer "Drop in". */
+  interactive: boolean;
 }
 
 export const CAPABILITY_KEYS = [
@@ -37,6 +42,7 @@ export const CAPABILITY_KEYS = [
   "reasoning_summaries",
   "permission_hooks",
   "mcp",
+  "interactive",
 ] as const satisfies readonly (keyof CapabilitySet)[];
 
 export const CapabilitySetSchema = z.object({
@@ -47,6 +53,7 @@ export const CapabilitySetSchema = z.object({
   reasoning_summaries: z.boolean(),
   permission_hooks: z.boolean(),
   mcp: z.boolean(),
+  interactive: z.boolean(),
 });
 
 // --- RunSpec (contracts.md, literal) ---
@@ -127,6 +134,27 @@ export const EngineEventSchema = z.discriminatedUnion("t", [
 export type EngineEvent = z.infer<typeof EngineEventSchema>;
 export type EngineEventType = EngineEvent["t"];
 
+// --- InteractiveEngineSession (E13 "drop in") ---
+
+/**
+ * A live, multi-turn session a human can send further messages into and get
+ * real-time turns back from — the engine-agnostic counterpart to the batch
+ * `start`/`resume`/`events` triad above, which is shaped for exactly one
+ * call-to-`run_ended` per invocation and can't represent "still open, more input
+ * welcome." Deliberately minimal: the runtime owns turn bookkeeping (creating a `Run`
+ * row per message, folding events into store state); this only owns the underlying
+ * process/channel.
+ */
+export interface InteractiveEngineSession {
+  /** Sends one turn's worth of new user input. */
+  send(userText: string): void;
+  /** Long-lived — a `run_ended`-shaped event marks a turn boundary, not the end of
+   * the iterable. Ends only when `close()` is called (or the process dies). */
+  events(): AsyncIterable<EngineEvent>;
+  /** Graceful shutdown (e.g. closes stdin and lets the process exit on its own). */
+  close(): void;
+}
+
 // --- ExecutionAdapter (contracts.md, literal) ---
 
 export interface ExecutionAdapter {
@@ -138,4 +166,8 @@ export interface ExecutionAdapter {
   cancel(handle: RunHandle): Promise<void>;
   /** Ends with exactly one `run_ended`; a crashed engine (F1) ends the iterable abnormally instead. */
   events(handle: RunHandle): AsyncIterable<EngineEvent>;
+  /** Present only if `capabilities().interactive` is true (same capability-honesty
+   * rule as `resume` above) — an engine that doesn't implement live attach simply
+   * doesn't offer it, rather than the runtime assuming any one engine everywhere. */
+  attachInteractive?(spec: RunSpec & { sessionRef?: string }): Promise<InteractiveEngineSession>;
 }
