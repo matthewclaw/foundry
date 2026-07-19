@@ -15,7 +15,9 @@
   "bin": {
     "foundry-org-tool": "./dist/orgtools/shim.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:watch": "tsc -p tsconfig.json --watch",
@@ -24,6 +26,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fastify/websocket": "^8",
     "@foundry/core": "workspace:*",
     "@foundry/runtime": "workspace:*",
     "@foundry/store": "workspace:*",

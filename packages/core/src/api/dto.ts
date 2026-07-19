@@ -46,6 +46,14 @@ export const CreateTeamRequestSchema = z.object({
 });
 export type CreateTeamRequest = z.infer<typeof CreateTeamRequestSchema>;
 
+// --- PATCH /api/teams/:id · DELETE /api/teams/:id ---
+
+export const PatchTeamRequestSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+});
+export type PatchTeamRequest = z.infer<typeof PatchTeamRequestSchema>;
+
 // --- POST /api/workstreams · messages · close ---
 
 export const CreateWorkstreamRequestSchema = z.object({

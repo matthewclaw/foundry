@@ -36,7 +36,7 @@ const happyScenario: Scenario = {
 };
 
 describe("FakeExecutionAdapter", () => {
-  it("declares every optional capability (ADR-010)", () => {
+  it("declares every optional capability (ADR-010), except interactive (no scripted attach yet)", () => {
     const adapter = createFakeAdapter(happyScenario);
     expect(adapter.capabilities()).toEqual({
       resume: true,
@@ -46,6 +46,7 @@ describe("FakeExecutionAdapter", () => {
       reasoning_summaries: true,
       permission_hooks: true,
       mcp: true,
+      interactive: false,
     });
   });
 

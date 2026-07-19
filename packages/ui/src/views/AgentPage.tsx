@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client.js";
 import type { AgentPageDto } from "../api/types.js";
 import { Badge } from "./OrgView.js";
+import Markdown from "react-markdown";
 
 function CharterSection({ agentId, charter }: { agentId: string; charter: AgentPageDto["charter"] }) {
   const queryClient = useQueryClient();
@@ -23,13 +24,13 @@ function CharterSection({ agentId, charter }: { agentId: string; charter: AgentP
   });
 
   return (
-    <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+    <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
       <div className="flex items-center gap-3 mb-2">
-        <h2 className="font-semibold text-gray-800">Charter</h2>
+        <h2 className="font-semibold text-gray-200">Charter</h2>
         {charter && <span className="text-xs text-gray-500">v{charter.version}</span>}
         {!editing && (
           <button
-            className="ml-auto text-sm text-blue-700 hover:underline"
+            className="ml-auto text-sm text-green-400 hover:underline"
             onClick={() => {
               setDraft(charter?.body_md ?? "");
               setEditing(true);
@@ -43,30 +44,30 @@ function CharterSection({ agentId, charter }: { agentId: string; charter: AgentP
         <div>
           <textarea
             aria-label="Charter editor"
-            className="w-full h-48 border border-gray-300 rounded p-2 text-sm font-mono"
+            className="w-full h-48 border border-gray-700 bg-black text-gray-200 rounded p-2 text-sm font-mono focus:outline-none focus:border-green-600"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />
           <div className="mt-2 flex gap-2 items-center">
             <button
-              className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+              className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
               disabled={save.isPending}
               onClick={() => save.mutate(draft)}
             >
               {save.isPending ? "Saving…" : "Save"}
             </button>
-            <button className="text-sm text-gray-600" onClick={() => setEditing(false)}>
+            <button className="text-sm text-gray-500" onClick={() => setEditing(false)}>
               Cancel
             </button>
             {save.error && (
-              <span className="text-sm text-red-600">
+              <span className="text-sm text-red-400">
                 {save.error instanceof Error ? save.error.message : String(save.error)}
               </span>
             )}
           </div>
         </div>
       ) : charter ? (
-        <pre className="whitespace-pre-wrap text-sm text-gray-800 font-sans">{charter.body_md}</pre>
+        <Markdown>{charter.body_md}</Markdown>
       ) : (
         <p className="text-sm text-gray-500">No charter yet — use Edit to write one.</p>
       )}
@@ -106,16 +107,16 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
 
   return (
     <form
-      className="bg-white border border-gray-200 rounded-lg p-4 mb-3"
+      className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (title.trim()) create.mutate();
       }}
     >
-      <h2 className="font-semibold text-gray-800 mb-2 text-sm">New workstream</h2>
+      <h2 className="font-semibold text-gray-200 mb-2 text-sm">New workstream</h2>
       <input
         aria-label="Workstream title"
-        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
         placeholder="Title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
@@ -123,7 +124,7 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
       />
       <textarea
         aria-label="Goal"
-        className="w-full h-16 border border-gray-300 rounded p-2 text-sm mb-2"
+        className="w-full h-16 border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
         placeholder="Goal (what should the agent accomplish?)"
         value={goal}
         onChange={(e) => setGoal(e.target.value)}
@@ -131,7 +132,7 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
       />
       <input
         aria-label="Repo path"
-        className="w-full border border-gray-300 rounded p-2 text-sm mb-2"
+        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
         placeholder="Repo folder path (optional — e.g. C:\repos\my-project)"
         value={repoPath}
         onChange={(e) => setRepoPath(e.target.value)}
@@ -139,7 +140,7 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
       />
       {repoPath.trim() && (
         <div className="mb-2">
-          <label className="flex items-center gap-2 text-xs text-gray-600">
+          <label className="flex items-center gap-2 text-xs text-gray-400">
             <input
               type="checkbox"
               checked={useWorktree}
@@ -158,7 +159,7 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
       <div className="flex items-center gap-3">
         <button
           type="submit"
-          className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+          className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
           disabled={create.isPending || !title.trim()}
         >
           {create.isPending ? "Creating…" : "Create workstream"}
@@ -167,7 +168,7 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
           Cancel
         </button>
         {create.error && (
-          <span className="text-xs text-red-600">
+          <span className="text-xs text-red-400">
             {create.error instanceof Error ? create.error.message : String(create.error)}
           </span>
         )}
@@ -187,28 +188,28 @@ export default function AgentPage() {
 
   if (isLoading) return <div className="p-6 text-gray-500">Loading agent…</div>;
   if (error)
-    return <div className="p-6 text-red-600">Error: {error instanceof Error ? error.message : String(error)}</div>;
+    return <div className="p-6 text-red-400">Error: {error instanceof Error ? error.message : String(error)}</div>;
   if (!data) return null;
 
   return (
     <div className="p-6 max-w-3xl">
       <header className="mb-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-900">{data.agent.name}</h1>
+          <h1 className="text-2xl font-bold text-gray-100"><span className="text-green-500">$</span> {data.agent.name}</h1>
           <Badge status={data.status} />
         </div>
-        <p className="text-sm text-gray-600 mt-1">
+        <p className="text-sm text-gray-400 mt-1">
           {data.agent.role} · {data.agent.state} · engine: {data.agent.engine.id}
         </p>
       </header>
 
       <CharterSection agentId={data.agent.id} charter={data.charter} />
 
-      <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+      <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
         <div className="flex items-center mb-2">
-          <h2 className="font-semibold text-gray-800">Workstreams</h2>
+          <h2 className="font-semibold text-gray-200">Workstreams</h2>
           <button
-            className="ml-auto text-sm text-blue-700 hover:underline"
+            className="ml-auto text-sm text-green-400 hover:underline"
             onClick={() => setShowNewWorkstream((s) => !s)}
           >
             {showNewWorkstream ? "Cancel" : "+ New workstream"}
@@ -220,10 +221,10 @@ export default function AgentPage() {
         {data.workstreams.length === 0 ? (
           <p className="text-sm text-gray-500">None.</p>
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-gray-800">
             {data.workstreams.map((ws) => (
               <li key={ws.id} className="py-1.5 flex items-center gap-2 text-sm">
-                <Link to={`/workstreams/${ws.id}`} className="text-blue-700 hover:underline">
+                <Link to={`/workstreams/${ws.id}`} className="text-green-400 hover:underline">
                   {ws.title}
                 </Link>
                 <span className="text-xs text-gray-500">{ws.state}</span>
@@ -233,14 +234,14 @@ export default function AgentPage() {
         )}
       </section>
 
-      <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-        <h2 className="font-semibold text-gray-800 mb-2">Open tasks</h2>
+      <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
+        <h2 className="font-semibold text-gray-200 mb-2">Open tasks</h2>
         {data.openTasks.length === 0 ? (
           <p className="text-sm text-gray-500">None.</p>
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-gray-800">
             {data.openTasks.map((t) => (
-              <li key={t.id} className="py-1.5 text-sm text-gray-800">
+              <li key={t.id} className="py-1.5 text-sm text-gray-200">
                 {t.spec_md.slice(0, 100)}
                 <span className="ml-2 text-xs text-gray-500">{t.state}</span>
               </li>
@@ -249,12 +250,12 @@ export default function AgentPage() {
         )}
       </section>
 
-      <section className="bg-white border border-gray-200 rounded-lg p-4">
-        <h2 className="font-semibold text-gray-800 mb-2">Relationships</h2>
+      <section className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+        <h2 className="font-semibold text-gray-200 mb-2">Relationships</h2>
         {data.relationships.length === 0 ? (
           <p className="text-sm text-gray-500">No interactions yet.</p>
         ) : (
-          <ul className="text-sm text-gray-800 space-y-1">
+          <ul className="text-sm text-gray-200 space-y-1">
             {data.relationships.map((r) => (
               <li key={r.actor_id}>
                 {r.actor_id}

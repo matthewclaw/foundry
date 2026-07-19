@@ -24,6 +24,7 @@ import { createRunQueue, type RunQueue, type RunQueueJob, type RunQueueLimits } 
 import { createRunSupervisor } from "./supervisor/supervisor.js";
 import { createWorkspaceManager, type WorkspaceManager } from "./workspace/manager.js";
 import { createPidRegistry, reconcileOnStartup, type ReconcileResult } from "./reconcile/reconcile.js";
+import { createInteractiveSessionManager, type AttachResult } from "./interactive/session.js";
 
 export type AdapterRegistry = Record<string, ExecutionAdapter>;
 
@@ -66,6 +67,10 @@ export interface Runtime {
   releaseWorkspace(workstreamId: WorkstreamId): void;
   pendingCount(): number;
   activeCount(): number;
+  /** E13 "drop in": attaches (or joins an already-attached) live interactive session
+   * for this workstream. Fails clearly if the engine doesn't support it or there's no
+   * prior session to attach to — never assumes any one engine. */
+  attachInteractive(workstreamId: WorkstreamId): Promise<AttachResult>;
 }
 
 export function createRuntime(opts: RuntimeOptions): Runtime {
@@ -177,6 +182,13 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   }
 
   const queue: RunQueue = createRunQueue({ store, limits: opts.limits, execute });
+  const interactiveSessions = createInteractiveSessionManager({
+    store,
+    adapters,
+    queue,
+    resolve,
+    acquireWorkspace,
+  });
 
   function toJob(run: Run, workstream: Workstream, agent: Agent): RunQueueJob {
     return {
@@ -248,5 +260,6 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     releaseWorkspace: (workstreamId) => workspaces.release(workstreamId),
     pendingCount: () => queue.pendingCount(),
     activeCount: () => queue.activeCount(),
+    attachInteractive: (workstreamId) => interactiveSessions.attach(workstreamId),
   };
 }

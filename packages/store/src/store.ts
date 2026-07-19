@@ -6,7 +6,7 @@
  * ever handing out a raw, writable `db` handle outside of `mutate()`'s `apply(tx)`.
  */
 import { join } from "node:path";
-import type { AgentId, Approval, Artifact, ArtifactId, Run, Task, Team, Thread, ThreadAnchorType, Workstream } from "@foundry/core";
+import type { AgentId, Approval, Artifact, ArtifactId, Run, Task, Team, TeamId, Thread, ThreadAnchorType, Workstream } from "@foundry/core";
 import { openDb, type Db } from "./db/connection.js";
 import { createEventBus } from "./events/bus.js";
 import { createMutate } from "./mutate.js";
@@ -33,7 +33,7 @@ import {
   type CreateAgentInput,
   type TransitionAgentStateArgs,
 } from "./mutations/agents.js";
-import { createTeam, type CreateTeamInput } from "./mutations/teams.js";
+import { createTeam, updateTeam, deleteTeam, type CreateTeamInput, type UpdateTeamInput } from "./mutations/teams.js";
 import {
   createWorkstream,
   transitionWorkstreamState,
@@ -86,6 +86,8 @@ export interface StoreCommands {
   rebindAgentEngine(args: Parameters<typeof rebindAgentEngine>[2]): void;
   getOrCreateHumanActor(displayName?: string): ReturnType<typeof getOrCreateHumanActor>;
   createTeam(input: CreateTeamInput): Team;
+  updateTeam(input: UpdateTeamInput): Team;
+  deleteTeam(id: TeamId): void;
   createWorkstream(input: CreateWorkstreamInput): Workstream;
   transitionWorkstreamState(args: TransitionWorkstreamStateArgs): void;
   createRun(input: CreateRunInput): Run;
@@ -150,6 +152,8 @@ export function createStore(config: StoreConfig): Store {
       rebindAgentEngine: (args) => rebindAgentEngine(db, mutate, args),
       getOrCreateHumanActor: (displayName) => getOrCreateHumanActor(db, mutate, displayName),
       createTeam: (input) => createTeam(mutate, input),
+      updateTeam: (input) => updateTeam(db, mutate, input),
+      deleteTeam: (id) => deleteTeam(db, mutate, id),
       createWorkstream: (input) => createWorkstream(mutate, input),
       transitionWorkstreamState: (args) => transitionWorkstreamState(db, mutate, args),
       createRun: (input) => createRun(mutate, input),

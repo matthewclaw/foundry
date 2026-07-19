@@ -4,7 +4,7 @@ import { openDb } from "../db/connection.js";
 import { createEventBus } from "../events/bus.js";
 import { createMutate } from "../mutate.js";
 import { createAgent, transitionAgentState } from "./agents.js";
-import { createTeam } from "./teams.js";
+import { createTeam, updateTeam, deleteTeam } from "./teams.js";
 import { createWorkstream, transitionWorkstreamState } from "./workstreams.js";
 import { createTask, transitionTaskState } from "./tasks.js";
 import { createRun, transitionRunState, setRunTitle } from "./runs.js";
@@ -324,5 +324,49 @@ describe("teams", () => {
     const team = createTeam(mutate, { name: "Platform", description: "infra", default_policy: {} });
     const row = db.prepare(`SELECT name FROM teams WHERE id = ?`).get(team.id) as { name: string };
     expect(row.name).toBe("Platform");
+  });
+
+  it("renames a team, leaving fields not passed untouched", () => {
+    const { db, mutate } = harness();
+    const team = createTeam(mutate, { name: "Platform", description: "infra", default_policy: {} });
+
+    const renamed = updateTeam(db, mutate, { id: team.id, name: "Core Platform" });
+    expect(renamed.name).toBe("Core Platform");
+    expect(renamed.description).toBe("infra");
+
+    const row = db.prepare(`SELECT name, description FROM teams WHERE id = ?`).get(team.id) as {
+      name: string;
+      description: string;
+    };
+    expect(row).toEqual({ name: "Core Platform", description: "infra" });
+  });
+
+  it("throws renaming a team that doesn't exist", () => {
+    const { db, mutate } = harness();
+    expect(() => updateTeam(db, mutate, { id: "nonexistent" as never, name: "X" })).toThrow(/not found/);
+  });
+
+  it("deletes a team and unassigns its member agents rather than touching them", () => {
+    const { db, mutate } = harness();
+    const team = createTeam(mutate, { name: "Platform", description: "infra", default_policy: {} });
+    const { agentId } = createAgent(mutate, {
+      name: "Orbit",
+      role: "Backend Engineer",
+      team_id: team.id,
+      engine_id: "claude-code",
+      memory_ref: "agents/orbit/memory",
+      charter_body_md: "# Orbit",
+    });
+
+    deleteTeam(db, mutate, team.id);
+
+    expect(db.prepare(`SELECT id FROM teams WHERE id = ?`).get(team.id)).toBeUndefined();
+    const agentRow = db.prepare(`SELECT team_id FROM agents WHERE id = ?`).get(agentId) as { team_id: string | null };
+    expect(agentRow.team_id).toBeNull();
+  });
+
+  it("throws deleting a team that doesn't exist", () => {
+    const { db, mutate } = harness();
+    expect(() => deleteTeam(db, mutate, "nonexistent" as never)).toThrow(/not found/);
   });
 });

@@ -52,6 +52,7 @@ describe("CapabilitySetSchema", () => {
       reasoning_summaries: false,
       permission_hooks: true,
       mcp: true,
+      interactive: false,
     };
     expect(CapabilitySetSchema.parse(caps)).toEqual(caps);
   });

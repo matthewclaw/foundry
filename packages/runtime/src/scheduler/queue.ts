@@ -62,6 +62,18 @@ export interface RunQueue {
   cancelPending(runId: string, reason?: string): boolean;
   pendingCount(): number;
   activeCount(): number;
+  /**
+   * E13 "drop in": reserves a workstream's serialization slot for something that
+   * isn't a queued job at all — a live interactive session. Any headless run enqueued
+   * for this workstream while reserved sits `queued` exactly as it would behind any
+   * other in-flight run for the same workstream; nothing new to reject or special-case.
+   * Returns false if the workstream is already occupied (a run already active, or
+   * already reserved) — the caller must not double-reserve.
+   */
+  reserveWorkstream(workstreamId: WorkstreamId): boolean;
+  /** Releases a reservation taken via `reserveWorkstream` and drains anything that
+   * queued behind it. A no-op if the workstream wasn't reserved. */
+  releaseWorkstream(workstreamId: WorkstreamId): void;
 }
 
 interface Entry {
@@ -165,5 +177,14 @@ export function createRunQueue(opts: RunQueueOptions): RunQueue {
     },
     pendingCount: () => pending.length,
     activeCount: () => activeTotal,
+    reserveWorkstream(workstreamId) {
+      if (activeWorkstreams.has(workstreamId)) return false;
+      activeWorkstreams.add(workstreamId);
+      return true;
+    },
+    releaseWorkstream(workstreamId) {
+      if (!activeWorkstreams.delete(workstreamId)) return;
+      drain();
+    },
   };
 }

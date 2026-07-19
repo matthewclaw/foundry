@@ -144,6 +144,9 @@ export const RunTriggerSchema = z.enum([
   "schedule",
   "resume",
   "approval_granted",
+  /** E13 "drop in": one turn sent to an already-attached live interactive session,
+   * distinct from a queued `human_message` reply. */
+  "interactive_message",
 ]);
 export type RunTrigger = z.infer<typeof RunTriggerSchema>;
 

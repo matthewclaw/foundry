@@ -15,6 +15,11 @@ const ALL_CAPABILITIES: CapabilitySet = {
   reasoning_summaries: true,
   permission_hooks: true,
   mcp: true,
+  // ponytail: the one deliberate exception to "declares every capability" above — a
+  // scripted `attachInteractive` (E13) has no scenario-step equivalent to drive it from
+  // yet. Add one if a test genuinely needs to exercise interactive attach against the
+  // fake adapter rather than the real CLI.
+  interactive: false,
 };
 
 /**

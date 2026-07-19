@@ -162,6 +162,29 @@ describe("createRunQueue — E4.1", () => {
     expect(store.events.after(0).filter((e) => e.type === "run_queued")).toHaveLength(1);
   });
 
+  it("reserveWorkstream holds a workstream's slot for something outside the queue (E13 interactive attach)", async () => {
+    const store = testStore();
+    const agentId = bootstrapAgent(store);
+    const ws = makeWorkstream(store, agentId, "Interactive session live");
+
+    const executed: string[] = [];
+    const queue = createRunQueue({ store, execute: async (run) => void executed.push(run.id) });
+
+    expect(queue.reserveWorkstream(ws)).toBe(true);
+    expect(queue.reserveWorkstream(ws)).toBe(false); // already reserved
+
+    const run = queue.enqueue({ workstreamId: ws, trigger: "human_message", inputContextRef: "a", engineId: "fake" });
+    await sleep(20);
+    expect(executed).toEqual([]); // held behind the reservation, not started
+
+    queue.releaseWorkstream(ws);
+    await waitForIdle(queue);
+    expect(executed).toEqual([run.id]);
+
+    // Releasing again (nothing reserved) is a no-op, not an error.
+    expect(() => queue.releaseWorkstream(ws)).not.toThrow();
+  });
+
   it("emits a run_queued event as part of enqueueing", () => {
     const store = testStore();
     const agentId = bootstrapAgent(store);

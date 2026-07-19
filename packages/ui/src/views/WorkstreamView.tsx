@@ -3,8 +3,10 @@
  * engine_session_id (a resumed run continues the same engine session — see the
  * runtime's supervisor.ts — so consecutive runs sharing one are, from the engine's
  * point of view, one continuous conversation, not separate "Run #N" cards). Only the
- * most recent conversation is "current" — it gets a Reply box (POSTs resume:true,
- * continuing that session). "+ New conversation" always starts fresh (resume:false)
+ * most recent conversation is "current" — it gets a message box (POSTs resume:true,
+ * continuing that session, unless a drop-in session is attached, in which case the
+ * same box sends over the live WebSocket instead — see MessageComposer). "+ New
+ * conversation" always starts fresh (resume:false)
  * even though a resumable session exists, becoming the new current conversation.
  * Every conversation can be renamed (PATCH /api/runs/:id/title on its last run).
  *
@@ -17,6 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import { apiClient } from "../api/client.js";
 import { connectFeed } from "../api/sse.js";
+import { useInteractiveSession, type InteractiveSession } from "../api/interactive.js";
 import type { FeedEvent, TimelineRunEntry } from "../api/types.js";
 
 const RUN_TERMINAL_EVENT_TYPES = new Set(["run_completed", "run_failed", "run_cancelled", "run_interrupted"]);
@@ -84,7 +87,7 @@ function FormattedEventLine({ event, allEvents }: { event: TimelineRunEntry["eve
       </li>
     );
   }
-   return FormatToolEventLine(event, allEvents.filter(e => e.type === "run_tool_call"));
+  return FormatToolEventLine(event, allEvents.filter(e => e.type === "run_tool_call"));
 }
 function mapToolEventPayload(payload: unknown) {
   return (payload as {
@@ -110,13 +113,11 @@ function FormatToolEventLine(event: TimelineRunEntry["events"][number], toolEven
   if (endIdx > -1) {
     toolState = toolPayloads[endIdx]?.phase === 'end' && toolPayloads[endIdx]?.detail.is_error ? '❌' : '✅';
   }
-  const args = mainEventPayload.phase=='start' && mainEventPayload?.detail?.input ? mainEventPayload.detail.input : {};
-  console.log('raw',args);
-  console.log('stringified',JSON.stringify(args, null, 2));
-    return (
-    <li className="text-xs text-gray-600">
-      <details><summary>{toolState} <span className="font-medium text-gray-800">{mainEventPayload?.name ?? "tool"}</span></summary>
-      {args && <pre><code className="text-gray-400">{JSON.stringify(args, null, 2)}</code></pre>}</details>
+  const args = mainEventPayload.phase == 'start' && mainEventPayload?.detail?.input ? mainEventPayload.detail.input : {};
+  return (
+    <li className="text-xs text-gray-500">
+      <details><summary>{toolState} <span className="font-medium text-gray-300">{mainEventPayload?.name ?? "tool"}</span></summary>
+        {args && <pre><code className="text-gray-500">{JSON.stringify(args, null, 2)}</code></pre>}</details>
     </li>
   );
 }
@@ -140,7 +141,7 @@ function TurnBlock({
   return (
     <div className="mb-4">
       {message && (
-        <div className="mb-2 text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded p-2 prose prose-sm max-w-none">
+        <div className="mb-2 text-sm text-gray-200 bg-gray-800/50 border border-gray-700 rounded p-2 prose prose-sm prose-invert max-w-none">
           <span className="text-xs text-gray-500 mr-1">💬 message:</span>
           <Markdown>{message}</Markdown>
         </div>
@@ -148,8 +149,8 @@ function TurnBlock({
       {view === "raw" && entry.events.length > 0 && (
         <ul className="mb-2 space-y-1">
           {entry.events.map((e) => (
-            <li key={e.seq} className="text-xs text-gray-700 font-mono">
-              <span className="text-gray-500">{e.type}</span> {payloadSummary(e.payload)}
+            <li key={e.seq} className="text-xs text-gray-400">
+              <span className="text-gray-600">{e.type}</span> {payloadSummary(e.payload)}
             </li>
           ))}
         </ul>
@@ -164,14 +165,14 @@ function TurnBlock({
       {text !== null && text !== undefined ? (
         view === "raw" ? (
           <div>
-            <div className={`text-xs mb-1 ${isLive ? "text-green-700" : "text-gray-500"}`}>
+            <div className={`text-xs mb-1 ${isLive ? "text-green-500" : "text-gray-600"}`}>
               {isLive ? "live output" : `transcript (${entry.transcriptSource})`}
             </div>
             <pre
               className={
                 isLive
-                  ? "whitespace-pre-wrap text-xs bg-gray-900 text-green-400 border border-gray-800 rounded p-2 overflow-x-auto font-mono"
-                  : "whitespace-pre-wrap text-xs bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"
+                  ? "whitespace-pre-wrap text-xs bg-black text-green-400 border border-gray-800 rounded p-2 overflow-x-auto"
+                  : "whitespace-pre-wrap text-xs bg-gray-900 text-gray-300 border border-gray-800 rounded p-2 overflow-x-auto"
               }
             >
               {text || "…"}
@@ -179,13 +180,13 @@ function TurnBlock({
             </pre>
           </div>
         ) : (
-          <div className="text-sm text-gray-800 leading-relaxed bg-blue-50 border border-blue-100 rounded p-3 prose prose-sm max-w-none">
+          <div className="text-sm text-gray-200 leading-relaxed bg-gray-900 border border-gray-800 rounded p-3 prose prose-sm prose-invert max-w-none">
             {text ? <Markdown>{text}</Markdown> : "…"}
             {isLive && <span className="animate-pulse">▊</span>}
           </div>
         )
       ) : (run.ended_at &&
-        <p className="text-xs text-amber-700">
+        <p className="text-xs text-amber-500">
           No transcript available — this engine reported limited detail for this run (capability degradation, ADR-003).
         </p>
       )}
@@ -193,57 +194,100 @@ function TurnBlock({
         <span>{run.trigger}</span>
         <span>{run.state}</span>
         {isLive && (
-          <span className="text-green-700 bg-green-50 px-1.5 py-0.5 rounded animate-pulse">● live</span>
+          <span className="text-green-400 bg-green-900/40 px-1.5 py-0.5 rounded animate-pulse">● live</span>
         )}
         {run.ended_at && <span>ended {run.ended_at}</span>}
         {cost !== undefined && <span>${cost.toFixed(4)}</span>}
         {entry.transcriptSource === "none" && (
-          <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">limited engine detail</span>
+          <span className="text-amber-400 bg-amber-900/40 px-1.5 py-0.5 rounded">limited engine detail</span>
         )}
       </div>
     </div>
   );
 }
 
-/** Compact reply box — only on the current (most recent) conversation. Sends
- * resume:true: continue this session rather than starting a new conversation. */
-function InlineReply({ workstreamId, onDone }: { workstreamId: string; onDone: () => void }) {
+const STATUS_LABEL: Record<string, string> = {
+  connecting: "connecting…",
+  attached: "attached",
+  busy: "busy — previous turn still running",
+  error: "error",
+  closed: "disconnected",
+};
+const STATUS_CLASS: Record<string, string> = {
+  connecting: "text-gray-400",
+  attached: "text-green-400",
+  busy: "text-amber-400",
+  error: "text-red-400",
+  closed: "text-gray-500",
+};
+
+/** The one message box for a conversation — replaces the old separate "Reply"
+ * affordance now that drop-in exists: same textarea either way, it just sends over the
+ * live WebSocket (`live` non-null) when attached, or POSTs a headless resume:true
+ * message otherwise. Turn CONTENT (text, tool calls) isn't rendered here at all: it
+ * arrives through the same SSE-driven timeline every other turn does (this
+ * workstream's `useLiveRunText`/refetch above), since an interactive turn is just an
+ * ordinary Run folded through the same event catalogue. */
+function MessageComposer({ workstreamId, live }: { workstreamId: string; live: InteractiveSession | null }) {
   const queryClient = useQueryClient();
-  const [body, setBody] = useState("");
+  const [text, setText] = useState("");
   const send = useMutation({
     mutationFn: (body_md: string) =>
       apiClient.postWorkstreamMessage(workstreamId, { kind: "message", body_md, resume: true }),
     onSuccess: () => {
-      setBody("");
+      setText("");
       void queryClient.invalidateQueries({ queryKey: ["timeline", workstreamId] });
-      onDone();
     },
   });
+  const liveDisconnected = live !== null && (live.status === "error" || live.status === "closed");
+  const disabled = live !== null ? liveDisconnected : send.isPending;
+
+  const submit = () => {
+    if (!text.trim()) return;
+    if (live !== null) {
+      live.send(text.trim());
+      setText("");
+    } else {
+      send.mutate(text.trim());
+    }
+  };
 
   return (
-    <div className="mt-3 pt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
+    <div
+      className={`mt-3 pt-3 border-t border-gray-800`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {live && (
+        <div className="flex items-center gap-2 mb-2 text-xs">
+          <span className="text-green-500">$</span>
+          <span className={STATUS_CLASS[live.status]}>
+            {live.status === "attached" && live.engineSessionId
+              ? `attached (session ${live.engineSessionId.slice(0, 8)})`
+              : live.status === "error" && live.errorMessage
+                ? live.errorMessage
+                : STATUS_LABEL[live.status]}
+          </span>
+        </div>
+      )}
       <textarea
         aria-label="Reply"
-        className="w-full h-16 border border-gray-300 rounded p-2 text-sm"
-        placeholder="Reply…"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        disabled={send.isPending}
+        className="w-full h-16 border border-gray-700 bg-gray-900 text-gray-200 text-sm rounded p-2 focus:outline-none focus:border-green-600"
+        placeholder={live ? "Type to the live session…" : "Reply…"}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        disabled={disabled}
       />
       <div className="mt-2 flex items-center gap-3">
         <button
           type="button"
-          className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
-          disabled={send.isPending || !body.trim()}
-          onClick={() => body.trim() && send.mutate(body)}
+          className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
+          disabled={disabled || !text.trim()}
+          onClick={submit}
         >
-          {send.isPending ? "Sending…" : "Send"}
-        </button>
-        <button type="button" className="text-sm text-gray-500" onClick={onDone}>
-          Cancel
+          {!live && send.isPending ? "Sending…" : "Send"}
         </button>
         {send.error && (
-          <span className="text-xs text-red-600">
+          <span className="text-xs text-red-400">
             {send.error instanceof Error ? send.error.message : String(send.error)}
           </span>
         )}
@@ -277,7 +321,7 @@ function RenameControl({
     <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
       <input
         aria-label="Conversation title"
-        className="border border-gray-300 rounded px-2 py-0.5 text-sm font-semibold text-gray-800"
+        className="border border-gray-700 bg-gray-900 rounded px-2 py-0.5 text-sm font-semibold text-gray-200 focus:outline-none focus:border-green-600"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         disabled={rename.isPending}
@@ -285,7 +329,7 @@ function RenameControl({
       />
       <button
         type="button"
-        className="text-xs text-blue-700 hover:underline"
+        className="text-xs text-green-400 hover:underline"
         disabled={rename.isPending || !title.trim()}
         onClick={() => title.trim() && rename.mutate(title.trim())}
       >
@@ -310,14 +354,16 @@ function ConversationCard({
   isCurrent: boolean;
 }) {
   const [expanded, setExpanded] = useState(isCurrent);
-  const [view, setView] = useState<"raw" | "formatted">("raw");
-  const [showReply, setShowReply] = useState(false);
+  const [view, setView] = useState<"raw" | "formatted">("formatted");
   const [renaming, setRenaming] = useState(false);
+  const [droppedIn, setDroppedIn] = useState(false);
+  const live = useInteractiveSession(workstreamId, droppedIn);
 
   const lastRun = runs[runs.length - 1]!;
   const customTitle = runs.map((r) => r.run.title).find((t): t is string => !!t);
   const firstMessage = triggerMessageText(runs[0]!.events);
-  const displayTitle = customTitle ?? (firstMessage ? truncate(firstMessage, 50) : "Conversation");
+  const title = customTitle ?? (firstMessage ? firstMessage : "Conversation");
+  const displayTitle = customTitle ?? truncate(title, 80);
 
   const anyLive = runs.some(
     (r) => liveText[r.run.id] !== undefined && RUN_NONTERMINAL_STATES.has(r.run.state)
@@ -330,7 +376,7 @@ function ConversationCard({
   }, [anyLive]);
 
   return (
-    <div data-testid="conversation-card" className="bg-white border border-gray-200 rounded-lg mb-3 overflow-hidden">
+    <div data-testid="conversation-card" className="bg-gray-900 border border-gray-800 rounded-lg mb-3 overflow-hidden">
       <div
         role="button"
         tabIndex={0}
@@ -338,7 +384,7 @@ function ConversationCard({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") setExpanded((v) => !v);
         }}
-        className="w-full px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-50 cursor-pointer"
+        className="w-full px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-800/50 cursor-pointer"
       >
         {renaming ? (
           <RenameControl
@@ -349,10 +395,10 @@ function ConversationCard({
           />
         ) : (
           <>
-            <span className="font-semibold text-gray-800 text-sm">{displayTitle}</span>
+            <span title={title} className="font-semibold text-gray-200 text-sm">{displayTitle}</span>
             <button
               type="button"
-              className="text-xs text-gray-400 hover:text-blue-700"
+              className="text-xs text-gray-500 hover:text-green-400"
               onClick={(e) => {
                 e.stopPropagation();
                 setRenaming(true);
@@ -366,53 +412,60 @@ function ConversationCard({
           {runs.length} turn{runs.length === 1 ? "" : "s"}
         </span>
         {anyLive && (
-          <span className="text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded animate-pulse">● live</span>
+          <span className="text-xs text-green-400 bg-green-900/40 px-1.5 py-0.5 rounded animate-pulse">● live</span>
         )}
         {totalCost > 0 && <span className="text-xs text-gray-500">${totalCost.toFixed(4)}</span>}
         {anyLimited && (
-          <span className="text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">limited engine detail</span>
+          <span className="text-xs text-amber-400 bg-amber-900/40 px-1.5 py-0.5 rounded">limited engine detail</span>
         )}
-        <div className="ml-auto inline-flex rounded border border-gray-300 overflow-hidden text-xs">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setView("raw");
-            }}
-            className={`px-2 py-0.5 ${view === "raw" ? "bg-gray-800 text-white" : "bg-white text-gray-600"}`}
-          >
-            Raw
-          </button>
+        <div className={`ml-auto inline-flex rounded border border-gray-700 overflow-hidden text-xs`}>
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               setView("formatted");
             }}
-            className={`px-2 py-0.5 ${view === "formatted" ? "bg-gray-800 text-white" : "bg-white text-gray-600"}`}
+            className={`px-2 py-0.5 ${view === "formatted" ? "bg-gray-700 text-white" : "bg-gray-900 text-gray-500"}`}
           >
             Formatted
           </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setView("raw");
+            }}
+            className={`px-2 py-0.5 ${view === "raw" ? "bg-gray-700 text-white" : "bg-gray-900 text-gray-500"}`}
+          >
+            Raw
+          </button>
         </div>
-        <span className="text-gray-400">{expanded ? "−" : "+"}</span>
+        <span className="text-gray-500">{expanded ? "−" : "+"}</span>
       </div>
       {expanded && (
-        <div className="px-4 py-3 border-t border-gray-100">
-          {runs.map((entry) => (
-            <TurnBlock key={entry.run.id} entry={entry} view={view} liveText={liveText[entry.run.id]} />
-          ))}
-          {isCurrent &&
-            (showReply ? (
-              <InlineReply workstreamId={workstreamId} onDone={() => setShowReply(false)} />
-            ) : (
-              <button
-                type="button"
-                className="mt-3 text-sm text-blue-700 hover:underline"
-                onClick={() => setShowReply(true)}
-              >
-                Reply
-              </button>
+        <div className="px-4 py-3 border-t border-gray-800">
+          <div className="max-h-[32rem] overflow-y-auto">
+            {runs.map((entry) => (
+              <TurnBlock key={entry.run.id} entry={entry} view={view} liveText={liveText[entry.run.id]} />
             ))}
+          </div>
+          {lastRun.run.engine_session_id && (
+            <button
+              type="button"
+              title={droppedIn ? "Disconnect from current terminal instance" : "Connect to a terminal instance directly"}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDroppedIn((d) => !d);
+                setExpanded(true);
+              }}
+              className={`mt-2 text-xs px-2 py-0.5 rounded ${droppedIn ? "bg-green-700 text-white" : "border border-gray-700 text-gray-300 hover:bg-gray-800"
+                }`}
+            >
+              {droppedIn ? "Exit live" : "Drop in"}
+            </button>
+          )}
+          {droppedIn && <MessageComposer workstreamId={workstreamId} live={live} />}
+          {isCurrent && !droppedIn && <MessageComposer workstreamId={workstreamId} live={null} />}
         </div>
       )}
     </div>
@@ -436,16 +489,16 @@ function NewConversationForm({ workstreamId, onDone }: { workstreamId: string; o
 
   return (
     <form
-      className="mb-3 bg-white border border-gray-200 rounded-lg p-4"
+      className="mb-3 bg-gray-900 border border-gray-800 rounded-lg p-4"
       onSubmit={(e) => {
         e.preventDefault();
         if (body.trim()) send.mutate(body);
       }}
     >
-      <h2 className="font-semibold text-gray-800 mb-2 text-sm">New conversation</h2>
+      <h2 className="font-semibold text-gray-200 mb-2 text-sm">New conversation</h2>
       <textarea
         aria-label="Message"
-        className="w-full h-20 border border-gray-300 rounded p-2 text-sm"
+        className="w-full h-20 border border-gray-700 bg-black text-gray-200 rounded p-2 text-sm focus:outline-none focus:border-green-600"
         placeholder="Say something to this agent to start a new conversation…"
         value={body}
         onChange={(e) => setBody(e.target.value)}
@@ -454,14 +507,14 @@ function NewConversationForm({ workstreamId, onDone }: { workstreamId: string; o
       <div className="mt-2 flex items-center gap-3">
         <button
           type="submit"
-          className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+          className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
           disabled={send.isPending || !body.trim()}
         >
           {send.isPending ? "Sending…" : "Send message"}
         </button>
-        {send.data && <span className="text-xs text-gray-600">run enqueued: {send.data.run_id}</span>}
+        {send.data && <span className="text-xs text-gray-500">run enqueued: {send.data.run_id}</span>}
         {send.error && (
-          <span className="text-xs text-red-600">
+          <span className="text-xs text-red-400">
             {send.error instanceof Error ? send.error.message : String(send.error)}
           </span>
         )}
@@ -556,17 +609,19 @@ export default function WorkstreamView() {
 
   if (isLoading) return <div className="p-6 text-gray-500">Loading timeline…</div>;
   if (error)
-    return <div className="p-6 text-red-600">Error: {error instanceof Error ? error.message : String(error)}</div>;
+    return <div className="p-6 text-red-400">Error: {error instanceof Error ? error.message : String(error)}</div>;
   if (!data) return null;
 
   const conversations = groupIntoConversations(data.runs);
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-6">
       <div className="flex items-center mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Workstream {data.workstreamId}</h1>
+        <h1 className="text-2xl font-bold text-gray-100">
+          <span className="text-green-500">$</span> Workstream {data.workstreamId}
+        </h1>
         <button
-          className="ml-auto px-3 py-1 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+          className="ml-auto px-3 py-1 rounded border border-gray-700 text-sm text-gray-300 hover:bg-gray-800"
           onClick={() => setShowNewConversation((s) => !s)}
         >
           {showNewConversation ? "Cancel" : "+ New conversation"}

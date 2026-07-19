@@ -26,6 +26,7 @@ class ReferenceAdapter implements ExecutionAdapter {
       reasoning_summaries: true,
       permission_hooks: true,
       mcp: true,
+      interactive: false,
     };
   }
 

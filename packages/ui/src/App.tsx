@@ -26,8 +26,7 @@ import "./index.css";
 const queryClient = new QueryClient();
 
 const railLink = ({ isActive }: { isActive: boolean }) =>
-  `block px-3 py-1.5 rounded text-sm ${
-    isActive ? "bg-blue-100 text-blue-900 font-medium" : "text-gray-700 hover:bg-gray-200"
+  `block px-3 py-1.5 rounded text-sm ${isActive ? "bg-gray-800 text-green-400 font-medium" : "text-gray-400 hover:bg-gray-900 hover:text-gray-200"
   }`;
 
 function AgentLinks({ agents }: { agents: OrgViewAgent[] }) {
@@ -46,14 +45,15 @@ function LeftRail() {
   const { data: org } = useQuery({ queryKey: ["org"], queryFn: apiClient.getOrg });
 
   return (
-    <nav className="w-64 bg-gray-100 border-r border-gray-200 flex flex-col flex-shrink-0">
-      <div className="p-4 border-b border-gray-200">
-        <NavLink to="/" className="text-lg font-bold text-gray-900">
-          Foundry
+    <nav className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col flex-shrink-0">
+      <div className="p-4 border-b border-gray-800">
+        <NavLink to="/" className="text-lg font-bold text-green-400">
+          <span className="text-gray-500">$</span> Foundry
         </NavLink>
       </div>
-      <div className="flex-1 overflow-auto p-3 space-y-5">
-        <div className="space-y-0.5">
+      <div className="flex-1 overflow-auto p-3 space-y-5 ">
+        <details className="">
+          <summary className="py-1 font-semibold text-gray-600 uppercase">System</summary>
           <NavLink to="/inbox" className={railLink}>
             Inbox
           </NavLink>
@@ -63,19 +63,25 @@ function LeftRail() {
           <NavLink to="/claude-sessions" className={railLink}>
             Claude Sessions
           </NavLink>
-        </div>
-        {org?.teams && org.teams.map((team: OrgViewTeam) => (
-          <div key={team.id}>
-            <h2 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase">{team.name}</h2>
-            <AgentLinks agents={team.agents} />
-          </div>
-        ))}
-        {org && org.unassignedAgents.length > 0 && (
-          <div>
-            <h2 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase">Unassigned</h2>
-            <AgentLinks agents={org.unassignedAgents} />
-          </div>
-        )}
+        </details>
+        <details>
+          <summary className="py-1 font-semibold text-gray-600 uppercase">Organization</summary>
+          {org?.teams && org.teams.map((team: OrgViewTeam) => (
+            <details key={team.id} className="">
+              <summary className="px-2 py-1 text-xs font-semibold text-gray-600 uppercase">{team.name}</summary>
+              <div className="space-y-0.5 px-3">
+              <AgentLinks agents={team.agents} /></div>
+            </details>
+          ))}
+          {org && org.unassignedAgents.length > 0 && (
+            < details className="">
+              <summary className="px-2 py-1 text-xs font-semibold text-gray-600 uppercase">Unassigned</summary>
+              <div className="space-y-0.5 px-3">
+              <AgentLinks agents={org.unassignedAgents} />
+              </div>
+            </details>
+          )}
+        </details>
       </div>
     </nav>
   );
@@ -84,7 +90,7 @@ function LeftRail() {
 function Layout() {
   useEventFeed(queryClient);
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-gray-950 text-gray-300">
       <LeftRail />
       <main className="flex-1 overflow-auto">
         <Outlet />

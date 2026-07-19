@@ -60,4 +60,65 @@ describe("Team routes", () => {
     const res = await server.app.inject({ method: "POST", url: "/api/teams", payload: { description: "x" } });
     expect(res.statusCode).toBe(400);
   });
+
+  it("PATCH /api/teams/:id 200 — renames a team", async () => {
+    const created = await server.app.inject({
+      method: "POST",
+      url: "/api/teams",
+      payload: { name: "Platform", description: "infra team" },
+    });
+    const team = JSON.parse(created.body);
+
+    const res = await server.app.inject({
+      method: "PATCH",
+      url: `/api/teams/${team.id}`,
+      payload: { name: "Core Platform" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.name).toBe("Core Platform");
+    expect(body.description).toBe("infra team");
+    expect(server.store.teams.get(team.id)).toMatchObject({ name: "Core Platform" });
+  });
+
+  it("PATCH /api/teams/:id 404 — unknown team", async () => {
+    const res = await server.app.inject({
+      method: "PATCH",
+      url: "/api/teams/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      payload: { name: "X" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("DELETE /api/teams/:id 204 — deletes a team and unassigns member agents", async () => {
+    const createdTeam = await server.app.inject({
+      method: "POST",
+      url: "/api/teams",
+      payload: { name: "Platform", description: "infra team" },
+    });
+    const team = JSON.parse(createdTeam.body);
+
+    const createdAgent = await server.app.inject({
+      method: "POST",
+      url: "/api/agents",
+      payload: {
+        name: "Orbit",
+        role: "Backend Engineer",
+        team_id: team.id,
+        charter_md: "# Orbit",
+        engine: { id: "fake" },
+      },
+    });
+    const agent = JSON.parse(createdAgent.body);
+
+    const res = await server.app.inject({ method: "DELETE", url: `/api/teams/${team.id}` });
+    expect(res.statusCode).toBe(204);
+    expect(server.store.teams.get(team.id)).toBeUndefined();
+    expect(server.store.agents.get(agent.id)).toMatchObject({ team_id: null });
+  });
+
+  it("DELETE /api/teams/:id 404 — unknown team", async () => {
+    const res = await server.app.inject({ method: "DELETE", url: "/api/teams/01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+    expect(res.statusCode).toBe(404);
+  });
 });

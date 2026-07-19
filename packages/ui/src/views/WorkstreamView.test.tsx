@@ -24,6 +24,28 @@ vi.mock("../api/sse.js", () => ({
   }),
 }));
 
+/** Stand-in for the browser's `WebSocket` — jsdom has none. Tracks every instance so a
+ * test can simulate the server's control frames (attached/busy/error). */
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  url: string;
+  sent: string[] = [];
+  onmessage: ((e: { data: string }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor(url: string) {
+    this.url = url;
+    FakeWebSocket.instances.push(this);
+  }
+  send(data: string): void {
+    this.sent.push(data);
+  }
+  close(): void {
+    this.onclose?.();
+  }
+}
+vi.stubGlobal("WebSocket", FakeWebSocket);
+
 const run1: TimelineRunEntry = {
   run: {
     id: "run1",
@@ -112,7 +134,10 @@ function renderView(timeline: Timeline) {
 }
 
 describe("WorkstreamView", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    FakeWebSocket.instances.length = 0;
+  });
 
   it("groups runs sharing a session id into one conversation card with both turns", async () => {
     renderView({ workstreamId: "ws1", runs: [run1, run2SameConvo] });
@@ -148,12 +173,12 @@ describe("WorkstreamView", () => {
     expect(screen.getByText(/No transcript available/)).toBeTruthy();
   });
 
-  it("only the current (most recent) conversation gets a Reply box", async () => {
+  it("only the current (most recent) conversation gets a message box", async () => {
     renderView({ workstreamId: "ws1", runs: [run1, run2SameConvo, run3NewConvo] });
     await screen.findAllByText(/Fix the auth module/);
 
-    // Only one Reply button exists (on the current conversation), not one per turn.
-    expect(screen.getAllByText("Reply")).toHaveLength(1);
+    // Only one composer exists (on the current conversation), not one per turn.
+    expect(screen.getAllByLabelText("Reply")).toHaveLength(1);
   });
 
   it("replying uses resume:true", async () => {
@@ -161,7 +186,6 @@ describe("WorkstreamView", () => {
     renderView({ workstreamId: "ws1", runs: [run1] });
 
     await screen.findAllByText(/Fix the auth module/);
-    fireEvent.click(screen.getByText("Reply"));
     fireEvent.change(screen.getByLabelText("Reply"), { target: { value: "And the flaky test?" } });
     fireEvent.click(screen.getByText("Send"));
 
@@ -322,5 +346,46 @@ describe("WorkstreamView", () => {
       });
     });
     expect(screen.queryByText(/SHOULD NOT APPEAR/)).toBeNull();
+  });
+
+  it("shows Drop in only for a conversation with a session id, not one without", async () => {
+    renderView({ workstreamId: "ws1", runs: [degradedRun] }); // engine_session_id: null
+    await screen.findByText(/No transcript available/);
+    expect(screen.queryByText("Drop in")).toBeNull();
+  });
+
+  it("Drop in connects a live session, shows attached status, and sends typed text over the socket", async () => {
+    renderView({ workstreamId: "ws1", runs: [run1] }); // engine_session_id: "sess-a"
+    await screen.findAllByText(/Fix the auth module/);
+
+    fireEvent.click(screen.getByText("Drop in"));
+    const socket = FakeWebSocket.instances.at(-1);
+    expect(socket).toBeTruthy();
+    expect(socket!.url).toContain("/api/workstreams/ws1/interactive");
+
+    act(() => {
+      socket!.onmessage?.({ data: JSON.stringify({ type: "attached", engineSessionId: "sess-a" }) });
+    });
+    expect(screen.getByText(/attached \(session sess-a/)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Reply"), { target: { value: "hi there" } });
+    fireEvent.click(screen.getByText("Send"));
+    expect(socket!.sent).toEqual([JSON.stringify({ type: "send", text: "hi there" })]);
+
+    // "Exit live" toggles the panel back to the plain headless composer.
+    fireEvent.click(screen.getByText("Exit live"));
+    expect(screen.queryByText(/attached \(session/)).toBeNull();
+  });
+
+  it("Drop in shows a busy status when the server rejects a send while a turn is in flight", async () => {
+    renderView({ workstreamId: "ws1", runs: [run1] });
+    await screen.findAllByText(/Fix the auth module/);
+
+    fireEvent.click(screen.getByText("Drop in"));
+    const socket = FakeWebSocket.instances.at(-1)!;
+    act(() => socket.onmessage?.({ data: JSON.stringify({ type: "attached", engineSessionId: "sess-a" }) }));
+
+    act(() => socket.onmessage?.({ data: JSON.stringify({ type: "busy" }) }));
+    expect(screen.getByText(/busy/)).toBeTruthy();
   });
 });

@@ -15,6 +15,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     throw new Error(`${init?.method ?? "GET"} /api${path} failed: ${res.status} ${res.statusText}`);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -69,6 +70,9 @@ export const apiClient = {
     request<unknown>(`/approvals/${id}/deny`, json("POST", { reason })),
   createAgent: (body: CreateAgentBody) => request<{ id: string }>("/agents", json("POST", body)),
   createTeam: (body: CreateTeamBody) => request<{ id: string; name: string }>("/teams", json("POST", body)),
+  patchTeam: (id: string, body: { name?: string; description?: string }) =>
+    request<{ id: string; name: string; description: string }>(`/teams/${id}`, json("PATCH", body)),
+  deleteTeam: (id: string) => request<void>(`/teams/${id}`, { method: "DELETE" }),
   createWorkstream: (body: CreateWorkstreamBody) =>
     request<{ id: string }>("/workstreams", json("POST", { ...body, budget: {} })),
   getClaudeSessions: () => request<{ groups: ClaudeSessionGroupDto[] }>("/claude-sessions"),
