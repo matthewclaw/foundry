@@ -2,8 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* One source of truth for the "quiet terminal" surface stack. Kept close to the
+     Tailwind gray/green vocabulary the app already speaks, just deliberate. */
+  --bg: #0a0e0c;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background-color: #0a0e0c;
+  /* Chrome, labels, and data read as an instrument panel; long-form content (charters,
+     goals, agent responses) is set in a humanist sans so it's actually comfortable to
+     read. Mono is reserved for identity, code, ids, and metrics via `font-mono`. */
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg);
   color: #d1d5db;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Subtle, unobtrusive scrollbars — a flat scrollbar reads as "tool," not "webpage". */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2f2c transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #23282a;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #33383a;
+  background-clip: padding-box;
+}
+
+::selection {
+  background: rgba(74, 222, 128, 0.25);
+}
+
+/* A single, consistent focus ring across every interactive element. */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px rgba(74, 222, 128, 0.6);
+  border-radius: 4px;
+}
+
+/* Markdown bodies: tighten the default prose rhythm so responses don't feel like a blog. */
+.prose :where(p, ul, ol, pre):first-child {
+  margin-top: 0;
+}
+.prose :where(p, ul, ol, pre):last-child {
+  margin-bottom: 0;
 }

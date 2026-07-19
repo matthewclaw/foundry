@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { OrgView, OrgViewAgent, OrgViewTeam, AgentStatus } from "../api/types.js";
 import OrgViewComponent, { statusBadge } from "./OrgView.js";
@@ -56,7 +57,9 @@ function renderOrgView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <OrgViewComponent />
+      <MemoryRouter>
+        <OrgViewComponent />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -166,7 +169,7 @@ describe("OrgView", () => {
     renderOrgView();
 
     await screen.findByText("Platform");
-    fireEvent.click(screen.getByText("✎"));
+    fireEvent.click(screen.getByLabelText("Rename team"));
     fireEvent.change(screen.getByLabelText("Team name"), { target: { value: "Core Platform" } });
     fireEvent.click(screen.getByText("Save"));
 

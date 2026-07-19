@@ -89,7 +89,9 @@ export function useEventFeed(queryClient: QueryClient): void {
         if (timer) return; // trailing throttle: at most one invalidation per second
         timer = setTimeout(() => {
           timer = null;
+          // Rail health + attention badge both derive from these two queries.
           void queryClient.invalidateQueries({ queryKey: ["org"] });
+          void queryClient.invalidateQueries({ queryKey: ["inbox"] });
         }, 1000);
       },
       onError: (error) => console.error("event feed:", error.message),

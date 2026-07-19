@@ -6,9 +6,11 @@
  * renders from the transcript file").
  */
 import { existsSync, readFileSync } from "node:fs";
-import type { Event, Run, WorkstreamId } from "@foundry/core";
+import type { AgentId, Event, Run, WorkstreamId } from "@foundry/core";
 import type { Db } from "../db/connection.js";
 import { rowToRun, type RunRow } from "../mutations/runs.js";
+import { rowToWorkstream, type WorkstreamRow } from "../mutations/workstreams.js";
+import { rowToAgent, type AgentRow } from "../mutations/agents.js";
 import { rowToEvent, type EventRow } from "../row-mapping.js";
 import { transcriptPath } from "../events/feed.js";
 
@@ -20,8 +22,19 @@ export interface TimelineRunEntry {
   transcriptSource: "live" | "file" | "none";
 }
 
+/** Just enough about the workstream (and the agent it belongs to) for the timeline view
+ * to render a real header/breadcrumb instead of a bare id. */
+export interface TimelineHeader {
+  id: WorkstreamId;
+  title: string;
+  goal_md: string;
+  state: string;
+  agent: { id: AgentId; name: string } | null;
+}
+
 export interface Timeline {
   workstreamId: WorkstreamId;
+  workstream: TimelineHeader | null;
   runs: TimelineRunEntry[];
 }
 
@@ -39,6 +52,21 @@ export function workstreamTimeline(db: Db, dataDir: string, workstreamId: Workst
     params.before = page.before;
   }
   const limit = page?.limit ?? 50;
+
+  const wsRow = db.prepare(`SELECT * FROM workstreams WHERE id = ?`).get(workstreamId) as WorkstreamRow | undefined;
+  let header: TimelineHeader | null = null;
+  if (wsRow) {
+    const ws = rowToWorkstream(wsRow);
+    const agentRow = db.prepare(`SELECT * FROM agents WHERE id = ?`).get(ws.agent_id) as AgentRow | undefined;
+    const agent = agentRow ? rowToAgent(agentRow) : null;
+    header = {
+      id: ws.id,
+      title: ws.title,
+      goal_md: ws.goal_md,
+      state: ws.state,
+      agent: agent ? { id: agent.id, name: agent.name } : null,
+    };
+  }
 
   const runRows = db
     .prepare(`SELECT * FROM runs WHERE workstream_id = ? ORDER BY seq DESC LIMIT ?`)
@@ -74,5 +102,5 @@ export function workstreamTimeline(db: Db, dataDir: string, workstreamId: Workst
     return { run, events, transcriptText, transcriptSource };
   });
 
-  return { workstreamId, runs: entries };
+  return { workstreamId, workstream: header, runs: entries };
 }

@@ -90,8 +90,18 @@ export interface TimelineRunEntry {
   transcriptSource: "live" | "file" | "none";
 }
 
+/** Header for the timeline view — real title/goal/agent so the page isn't just a ULID. */
+export interface TimelineHeader {
+  id: string;
+  title: string;
+  goal_md: string;
+  state: string;
+  agent: { id: string; name: string } | null;
+}
+
 export interface Timeline {
   workstreamId: string;
+  workstream: TimelineHeader | null;
   runs: TimelineRunEntry[];
 }
 

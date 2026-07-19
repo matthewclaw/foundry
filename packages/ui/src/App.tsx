@@ -1,8 +1,10 @@
 /**
- * E7.1 — SPA shell: QueryClient + router + left-rail navigation.
- * "Agents are the navigation objects" (doc-06): the left rail is teams → agents
- * from GET /api/org, not a file tree. Routes: "/" org view, "/agents/:id", "/inbox".
+ * SPA shell: QueryClient + router + left-rail navigation.
+ * "Agents are the navigation objects" (doc-06): the rail is teams → agents from
+ * GET /api/org, each carrying a live status dot, so organizational health is legible
+ * without opening anything. System views (Inbox/Cost/Sessions) sit above the org tree.
  */
+import { useState } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -13,7 +15,8 @@ import {
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { apiClient } from "./api/client.js";
 import { useEventFeed } from "./api/sse.js";
-import type { OrgViewAgent, OrgViewTeam } from "./api/types.js";
+import type { InboxItem, OrgViewAgent, OrgViewTeam } from "./api/types.js";
+import { Icon, StatusDot, cx, type AgentStatus } from "./components/ui.js";
 import OrgView from "./views/OrgView.js";
 import AgentPage from "./views/AgentPage.js";
 import WorkstreamView from "./views/WorkstreamView.js";
@@ -25,63 +28,116 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
-const railLink = ({ isActive }: { isActive: boolean }) =>
-  `block px-3 py-1.5 rounded text-sm ${isActive ? "bg-gray-800 text-green-400 font-medium" : "text-gray-400 hover:bg-gray-900 hover:text-gray-200"
-  }`;
+const WORST_FIRST: Record<AgentStatus, number> = {
+  blocked: 0, degraded: 1, waiting: 2, active: 3, "over-committed": 4, idle: 5,
+};
+const worst = (agents: OrgViewAgent[]): AgentStatus =>
+  agents.reduce<AgentStatus>((w, a) => (WORST_FIRST[a.status] < WORST_FIRST[w] ? a.status : w), "idle");
 
-function AgentLinks({ agents }: { agents: OrgViewAgent[] }) {
+function NavItem({ to, icon, label, badge }: { to: string; icon: React.ReactNode; label: string; badge?: number }) {
   return (
-    <div className="space-y-0.5">
-      {agents.map((agent) => (
-        <NavLink key={agent.id} to={`/agents/${agent.id}`} className={railLink}>
-          {agent.name}
-        </NavLink>
-      ))}
+    <NavLink
+      to={to}
+      end
+      className={({ isActive }) =>
+        cx(
+          "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm transition-colors",
+          isActive ? "bg-gray-800 text-gray-100" : "text-gray-400 hover:bg-gray-800/60 hover:text-gray-200"
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span className={isActive ? "text-green-400" : "text-gray-500"}>{icon}</span>
+          <span className="flex-1">{label}</span>
+          {badge !== undefined && badge > 0 && (
+            <span className="min-w-5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-center text-[11px] font-semibold text-amber-300 ring-1 ring-amber-500/30">
+              {badge}
+            </span>
+          )}
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+function AgentLink({ agent }: { agent: OrgViewAgent }) {
+  return (
+    <NavLink
+      to={`/agents/${agent.id}`}
+      className={({ isActive }) =>
+        cx(
+          "flex items-center gap-2.5 px-2.5 py-1 rounded-md text-sm transition-colors",
+          isActive ? "bg-gray-800 text-green-300" : "text-gray-400 hover:bg-gray-800/60 hover:text-gray-200"
+        )
+      }
+    >
+      <StatusDot status={agent.status} />
+      <span className="truncate">{agent.name}</span>
+    </NavLink>
+  );
+}
+
+function TeamGroup({ name, agents }: { name: string; agents: OrgViewAgent[] }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1.5 px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-300"
+      >
+        <Icon name={open ? "chevron-down" : "chevron-right"} size={12} className="text-gray-600" />
+        <StatusDot status={worst(agents)} />
+        <span className="truncate">{name}</span>
+        <span className="ml-auto font-normal normal-case text-gray-600">{agents.length}</span>
+      </button>
+      {open && (
+        <div className="mt-0.5 space-y-0.5 pl-3">
+          {agents.length === 0 ? (
+            <div className="px-2.5 py-1 text-xs text-gray-600">no agents</div>
+          ) : (
+            agents.map((a) => <AgentLink key={a.id} agent={a} />)
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function LeftRail() {
   const { data: org } = useQuery({ queryKey: ["org"], queryFn: apiClient.getOrg });
+  const { data: inbox } = useQuery({ queryKey: ["inbox"], queryFn: apiClient.getInbox });
+  const attention = (inbox ?? []).filter((i: InboxItem) => i.kind === "approval_pending").length;
 
   return (
-    <nav className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col flex-shrink-0">
-      <div className="p-4 border-b border-gray-800">
-        <NavLink to="/" className="text-lg font-bold text-green-400">
-          <span className="text-gray-500">$</span> Foundry
+    <nav className="flex w-64 flex-shrink-0 flex-col border-r border-gray-800 bg-gray-950">
+      <div className="flex items-center gap-2 border-b border-gray-800 px-4 py-3.5">
+        <NavLink to="/" className="flex items-center gap-2 text-base font-semibold tracking-tight text-gray-100">
+          <span className="font-mono text-green-500">›_</span> Foundry
         </NavLink>
       </div>
-      <div className="flex-1 overflow-auto p-3 space-y-5 ">
-        <details className="">
-          <summary className="py-1 font-semibold text-gray-600 uppercase">System</summary>
-          <NavLink to="/inbox" className={railLink}>
-            Inbox
-          </NavLink>
-          <NavLink to="/cost" className={railLink}>
-            Cost
-          </NavLink>
-          <NavLink to="/claude-sessions" className={railLink}>
-            Claude Sessions
-          </NavLink>
-        </details>
-        <details>
-          <summary className="py-1 font-semibold text-gray-600 uppercase">Organization</summary>
-          {org?.teams && org.teams.map((team: OrgViewTeam) => (
-            <details key={team.id} className="">
-              <summary className="px-2 py-1 text-xs font-semibold text-gray-600 uppercase">{team.name}</summary>
-              <div className="space-y-0.5 px-3">
-              <AgentLinks agents={team.agents} /></div>
-            </details>
+
+      <div className="flex-1 space-y-6 overflow-auto px-3 py-4">
+        <div className="space-y-0.5">
+          <NavItem to="/" icon={<Icon name="sitemap" size={16} />} label="Organization" />
+          <NavItem to="/inbox" icon={<Icon name="inbox" size={16} />} label="Inbox" badge={attention} />
+          <NavItem to="/cost" icon={<Icon name="coins" size={16} />} label="Cost" />
+          <NavItem to="/claude-sessions" icon={<Icon name="terminal" size={16} />} label="Claude Sessions" />
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="px-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-600">Teams</div>
+          {org?.teams?.map((team: OrgViewTeam) => (
+            <TeamGroup key={team.id} name={team.name} agents={team.agents} />
           ))}
           {org && org.unassignedAgents.length > 0 && (
-            < details className="">
-              <summary className="px-2 py-1 text-xs font-semibold text-gray-600 uppercase">Unassigned</summary>
-              <div className="space-y-0.5 px-3">
-              <AgentLinks agents={org.unassignedAgents} />
-              </div>
-            </details>
+            <TeamGroup name="Unassigned" agents={org.unassignedAgents} />
           )}
-        </details>
+          {org && org.teams.length === 0 && org.unassignedAgents.length === 0 && (
+            <div className="px-2.5 py-1 text-xs text-gray-600">No agents yet.</div>
+          )}
+        </div>
       </div>
     </nav>
   );
@@ -90,7 +146,7 @@ function LeftRail() {
 function Layout() {
   useEventFeed(queryClient);
   return (
-    <div className="flex h-screen bg-gray-950 text-gray-300">
+    <div className="flex h-screen bg-[var(--bg)] text-gray-300">
       <LeftRail />
       <main className="flex-1 overflow-auto">
         <Outlet />

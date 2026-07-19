@@ -1,13 +1,13 @@
 /**
- * E10.1 — Real inbox: approval_pending items (higher severity) first,
- * then message_surfaced. Sorted by severity, then age (oldest first).
- * Inline Grant/Deny actions for approvals; messages (future capability).
+ * Real inbox: approval_pending items (higher severity) first, then message_surfaced,
+ * sorted by severity then age (oldest first). Approvals carry inline Grant/Deny; surfaced
+ * messages are read-only notices (the projection doesn't yet carry enough to act on them).
  */
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseRef } from "@foundry/core";
 import { apiClient } from "../api/client.js";
 import type { InboxItem } from "../api/types.js";
+import { Button, EmptyState, ErrorState, ErrorText, Icon, Loading, PageHeader, Panel } from "../components/ui.js";
 
 /** Sort items: approval_pending first (higher severity), then by age (oldest first). */
 export function sortInboxItems(items: InboxItem[]): InboxItem[] {
@@ -15,119 +15,123 @@ export function sortInboxItems(items: InboxItem[]): InboxItem[] {
     const severityOrder = { approval_pending: 0, message_surfaced: 1 };
     const severityDiff = severityOrder[a.kind] - severityOrder[b.kind];
     if (severityDiff !== 0) return severityDiff;
-    // Same severity: oldest first (ascending date)
-    return a.created_at.localeCompare(b.created_at);
+    return a.created_at.localeCompare(b.created_at); // same severity: oldest first
   });
+}
+
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return iso;
+  const secs = Math.round((Date.now() - then) / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
 }
 
 function ApprovalItem({ item }: { item: InboxItem }) {
   const queryClient = useQueryClient();
-  const [denyPrompt, setDenyPrompt] = useState(false);
-
   const grant = useMutation({
-    mutationFn: () => {
-      const { id } = parseRef(item.ref);
-      return apiClient.grantApproval(id);
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["inbox"] });
-    },
+    mutationFn: () => apiClient.grantApproval(parseRef(item.ref).id),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["inbox"] }),
   });
-
   const deny = useMutation({
-    mutationFn: (reason?: string) => {
-      const { id } = parseRef(item.ref);
-      return apiClient.denyApproval(id, reason);
-    },
-    onSuccess: () => {
-      setDenyPrompt(false);
-      void queryClient.invalidateQueries({ queryKey: ["inbox"] });
-    },
+    mutationFn: (reason?: string) => apiClient.denyApproval(parseRef(item.ref).id, reason),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["inbox"] }),
   });
 
-  const handleDenyClick = () => {
+  const handleDeny = () => {
     const reason = window.prompt("Deny approval. Reason (optional):", "");
-    if (reason !== null) {
-      deny.mutate(reason || undefined);
-    }
+    if (reason !== null) deny.mutate(reason || undefined);
   };
 
+  const pending = grant.isPending || deny.isPending;
+
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-2">
+    <Panel className="mb-2 border-l-2 border-l-amber-500/70 p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex-1">
-          <div className="text-sm text-gray-100 font-semibold">{item.summary}</div>
-          <div className="text-xs text-gray-500 mt-1">
-            {item.created_at}
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex items-center gap-2">
+            <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300 ring-1 ring-amber-500/30">
+              Approval
+            </span>
+            <span className="text-xs text-gray-500" title={item.created_at}>{timeAgo(item.created_at)}</span>
           </div>
+          <div className="text-sm font-medium text-gray-100">{item.summary}</div>
         </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <button
-            className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
-            disabled={grant.isPending || deny.isPending}
-            onClick={() => grant.mutate()}
-          >
-            {grant.isPending ? "…" : "Grant"}
-          </button>
-          <button
-            className="px-3 py-1 rounded bg-red-600 text-white text-sm disabled:opacity-50"
-            disabled={grant.isPending || deny.isPending}
-            onClick={handleDenyClick}
-          >
+        <div className="flex flex-shrink-0 gap-2">
+          <Button variant="primary" size="sm" disabled={pending} onClick={() => grant.mutate()}>
+            {grant.isPending ? "…" : <><Icon name="check" size={13} /> Grant</>}
+          </Button>
+          <Button variant="danger" size="sm" disabled={pending} onClick={handleDeny}>
             {deny.isPending ? "…" : "Deny"}
-          </button>
+          </Button>
         </div>
       </div>
       {(grant.error || deny.error) && (
-        <div className="text-sm text-red-400 mt-2">
-          {grant.error instanceof Error ? grant.error.message : ""}
-          {deny.error instanceof Error ? deny.error.message : ""}
+        <div className="mt-2">
+          <ErrorText error={grant.error ?? deny.error} />
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
 
 function MessageItem({ item }: { item: InboxItem }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-2">
-      <div className="text-sm text-gray-100">{item.summary}</div>
-      <div className="text-xs text-gray-500 mt-1">
-        {item.created_at}
+    <Panel className="mb-2 p-4">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+          Notice
+        </span>
+        <span className="text-xs text-gray-500" title={item.created_at}>{timeAgo(item.created_at)}</span>
       </div>
+      <div className="text-sm text-gray-200">{item.summary}</div>
       {/* ponytail: answer/accept/reject/reassign actions need richer message-disposition
           data than this InboxItem projection carries yet; defer until message_surfaced
           items include thread/type/disposition info. */}
-    </div>
+    </Panel>
   );
 }
 
 export default function Inbox() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["inbox"],
-    queryFn: apiClient.getInbox,
-  });
+  const { data, isLoading, error } = useQuery({ queryKey: ["inbox"], queryFn: apiClient.getInbox });
 
-  if (isLoading) return <div className="p-6 text-gray-500">Loading inbox…</div>;
-  if (error)
-    return <div className="p-6 text-red-400">Error: {error instanceof Error ? error.message : String(error)}</div>;
-  if (!data || data.length === 0)
-    return <div className="p-6 text-gray-500">Inbox is empty — nothing needs you.</div>;
+  if (isLoading) return <Loading label="Loading inbox…" />;
+  if (error) return <ErrorState error={error} />;
 
-  const sorted = sortInboxItems(data);
+  const sorted = sortInboxItems(data ?? []);
+  const approvals = sorted.filter((i) => i.kind === "approval_pending").length;
 
   return (
-    <div className="p-6 max-w-2xl">
-      <h1 className="text-2xl font-bold text-gray-100 mb-4"><span className="text-green-500">$</span> Inbox</h1>
-      <div>
-        {sorted.map((item: InboxItem) =>
+    <div className="mx-auto max-w-2xl p-6">
+      <PageHeader
+        title="Inbox"
+        subtitle={
+          approvals > 0
+            ? `${approvals} approval${approvals === 1 ? "" : "s"} awaiting your decision`
+            : "Everything that needs a human, most urgent first."
+        }
+      />
+      {sorted.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={<Icon name="check" size={28} />}
+            title="You're all caught up."
+            hint="Approvals and surfaced messages that need your attention will land here."
+          />
+        </Panel>
+      ) : (
+        sorted.map((item) =>
           item.kind === "approval_pending" ? (
             <ApprovalItem key={item.ref} item={item} />
           ) : (
             <MessageItem key={item.ref} item={item} />
           )
-        )}
-      </div>
+        )
+      )}
     </div>
   );
 }

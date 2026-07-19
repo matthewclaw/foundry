@@ -119,8 +119,8 @@ const degradedRun: TimelineRunEntry = {
   transcriptSource: "none",
 };
 
-function renderView(timeline: Timeline) {
-  vi.mocked(apiClient.getTimeline).mockResolvedValue(timeline);
+function renderView(timeline: Omit<Timeline, "workstream"> & Partial<Pick<Timeline, "workstream">>) {
+  vi.mocked(apiClient.getTimeline).mockResolvedValue({ workstream: null, ...timeline });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -230,14 +230,14 @@ describe("WorkstreamView", () => {
     renderView({ workstreamId: "ws1", runs: [run1, run2SameConvo] });
 
     await screen.findAllByText(/Fix the auth module/);
-    fireEvent.click(screen.getByText("✎"));
+    fireEvent.click(screen.getByLabelText("Rename conversation"));
     fireEvent.change(screen.getByLabelText("Conversation title"), { target: { value: "Auth bugfix" } });
     fireEvent.click(screen.getByText("Save"));
 
     await waitFor(() => expect(apiClient.setRunTitle).toHaveBeenCalledWith("run2", "Auth bugfix"));
   });
 
-  it("toggles a conversation between raw (default) and formatted views, formatted also shows token usage", async () => {
+  it("toggles a conversation between formatted (default) and raw views, formatted also shows token usage", async () => {
     const toolRun: TimelineRunEntry = {
       run: {
         id: "run4",
@@ -261,18 +261,22 @@ describe("WorkstreamView", () => {
     renderView({ workstreamId: "ws1", runs: [toolRun] });
 
     await screen.findByText("Done.");
-    expect(screen.getAllByText(/run_tool_call/)).toHaveLength(2);
-    expect(screen.getByText(/run_usage_updated/)).toBeTruthy();
-
-    fireEvent.click(screen.getByText("Formatted"));
+    // Formatted is the default: start/end pair folds into one named tool row with its
+    // args, plus a usage line — no raw event-type text.
     expect(screen.queryByText(/run_tool_call/)).toBeNull();
     expect(screen.getByText("Glob")).toBeTruthy();
     expect(screen.getByText(/"pattern": "README.md"/)).toBeTruthy();
     expect(screen.getByText(/5 in \/ 199 out/)).toBeTruthy();
     expect(screen.getByText(/\$0\.0802/)).toBeTruthy();
 
+    // Raw exposes every underlying event (both tool_call phases + the usage event).
     fireEvent.click(screen.getByText("Raw"));
     expect(screen.getAllByText(/run_tool_call/)).toHaveLength(2);
+    expect(screen.getByText(/run_usage_updated/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Formatted"));
+    expect(screen.queryByText(/run_tool_call/)).toBeNull();
+    expect(screen.getByText("Glob")).toBeTruthy();
   });
 
   it("streams run_output_delta text live for a non-terminal run, auto-expanded, and clears on the terminal event", async () => {

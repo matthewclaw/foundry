@@ -1,36 +1,45 @@
 /**
- * E7.2 — Org view (doc-06): teams as sections, worst-of roll-up chip, exception-first
- * collapse. Status precedence (doc-02): blocked > degraded > waiting > active >
- * over-committed > idle. Blocked/degraded agents sort first and are emphasized;
- * teams with only idle/active members render collapsed to one calm line.
+ * Org view (doc-06): teams as sections, worst-of roll-up chip, exception-first collapse.
+ * Status precedence (doc-02): blocked > degraded > waiting > active > over-committed >
+ * idle. Blocked/degraded agents sort first and are emphasized; teams with only idle/active
+ * members render collapsed to one calm line — don't make the human hunt for what needs
+ * attention.
  */
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client.js";
 import type { AgentStatus, OrgViewAgent, OrgViewTeam } from "../api/types.js";
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  ErrorText,
+  Icon,
+  Label,
+  Loading,
+  PageHeader,
+  Panel,
+  Select,
+  StatusBadge,
+  StatusDot,
+  TextArea,
+  TextInput,
+  STATUS_META,
+  cx,
+} from "../components/ui.js";
 
-/** Badge classes + precedence rank per status (rank 0 = worst; doc-02 order). */
-export const STATUS_BADGE: Record<AgentStatus, { classes: string; rank: number }> = {
-  blocked: { classes: "bg-red-900/40 text-red-400", rank: 0 },
-  degraded: { classes: "bg-orange-900/40 text-orange-400", rank: 1 },
-  waiting: { classes: "bg-amber-900/40 text-amber-400", rank: 2 },
-  active: { classes: "bg-green-900/40 text-green-400", rank: 3 },
-  "over-committed": { classes: "bg-purple-900/40 text-purple-400", rank: 4 },
-  idle: { classes: "bg-gray-800 text-gray-400", rank: 5 },
-};
+/** Back-compat surface for the status test + AgentPage: classes + precedence rank. */
+export const STATUS_BADGE: Record<AgentStatus, { classes: string; rank: number }> = Object.fromEntries(
+  (Object.keys(STATUS_META) as AgentStatus[]).map((s) => [s, { classes: STATUS_META[s].badge, rank: STATUS_META[s].rank }])
+) as Record<AgentStatus, { classes: string; rank: number }>;
 
 export function statusBadge(status: AgentStatus): { classes: string; rank: number } {
   return STATUS_BADGE[status];
 }
 
 export function Badge({ status }: { status: AgentStatus }) {
-  return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${statusBadge(status).classes}`}
-    >
-      {status}
-    </span>
-  );
+  return <StatusBadge status={status} />;
 }
 
 const isException = (s: AgentStatus) => s === "blocked" || s === "degraded";
@@ -38,26 +47,29 @@ const isException = (s: AgentStatus) => s === "blocked" || s === "degraded";
 function AgentRow({ agent }: { agent: OrgViewAgent }) {
   const emphasized = isException(agent.status);
   return (
-    <div
+    <Link
+      to={`/agents/${agent.id}`}
       data-testid="agent-row"
-      className={`flex items-center gap-3 px-4 py-2 ${
-        emphasized ? "bg-red-950/40 border-l-4 border-red-500" : ""
-      }`}
-    >
-      <Badge status={agent.status} />
-      <div className="min-w-0 flex-1">
-        <span className={`text-sm truncate ${emphasized ? "font-semibold text-gray-100" : "text-gray-200"}`}>
-          {agent.name}
-        </span>
-        <span className="ml-2 text-xs text-gray-500">{agent.role}</span>
-        {agent.currently && (
-          <div className="text-xs text-gray-400 truncate">currently: {agent.currently}</div>
-        )}
-      </div>
-      {agent.spend_usd !== undefined && (
-        <span className="text-xs text-gray-500 flex-shrink-0">${agent.spend_usd.toFixed(2)}</span>
+      className={cx(
+        "flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-gray-800/40",
+        emphasized && "border-l-2 border-red-500 bg-red-950/30"
       )}
-    </div>
+    >
+      <StatusDot status={agent.status} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className={cx("truncate text-sm", emphasized ? "font-semibold text-gray-100" : "text-gray-200")}>
+            {agent.name}
+          </span>
+          <span className="truncate text-xs text-gray-500">{agent.role}</span>
+        </div>
+        {agent.currently && <div className="truncate text-xs text-gray-400">{agent.currently}</div>}
+      </div>
+      <Badge status={agent.status} />
+      {agent.spend_usd !== undefined && (
+        <span className="flex-shrink-0 font-mono text-xs text-gray-500">${agent.spend_usd.toFixed(2)}</span>
+      )}
+    </Link>
   );
 }
 
@@ -68,8 +80,8 @@ const sortAgents = (agents: OrgViewAgent[]): OrgViewAgent[] =>
 const isCalm = (agents: OrgViewAgent[]) =>
   agents.every((a) => a.status === "idle" || a.status === "active");
 
-/** Inline rename, only rendered for real teams (the synthetic "Unassigned" bucket has
- * no `id` and isn't renameable/deletable). */
+/** Inline rename, only rendered for real teams (the synthetic "Unassigned" bucket has no
+ * `id` and isn't renameable/deletable). */
 function TeamRenameControl({
   teamId,
   currentName,
@@ -93,7 +105,7 @@ function TeamRenameControl({
     <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
       <input
         aria-label="Team name"
-        className="border border-gray-700 bg-black rounded px-2 py-0.5 text-sm font-semibold text-gray-200 focus:outline-none focus:border-green-600"
+        className="rounded border border-gray-700 bg-gray-950 px-2 py-0.5 text-sm font-semibold text-gray-200 focus:border-green-600 focus:outline-none"
         value={name}
         onChange={(e) => setName(e.target.value)}
         disabled={rename.isPending}
@@ -110,11 +122,7 @@ function TeamRenameControl({
       <button type="button" className="text-xs text-gray-500" onClick={onDone}>
         Cancel
       </button>
-      {rename.error && (
-        <span className="text-xs text-red-400">
-          {rename.error instanceof Error ? rename.error.message : String(rename.error)}
-        </span>
-      )}
+      {rename.error && <ErrorText error={rename.error} />}
     </span>
   );
 }
@@ -134,6 +142,7 @@ function TeamSection({
   const [renaming, setRenaming] = useState(false);
   const queryClient = useQueryClient();
   const sorted = sortAgents(agents);
+  const attention = agents.filter((a) => isException(a.status)).length;
 
   const deleteTeam = useMutation({
     mutationFn: () => apiClient.deleteTeam(id!),
@@ -152,7 +161,7 @@ function TeamSection({
   };
 
   return (
-    <section className="bg-gray-900 border border-gray-800 rounded-lg mb-3 overflow-hidden">
+    <Panel className="mb-3 overflow-hidden">
       <div
         role="button"
         tabIndex={0}
@@ -160,8 +169,10 @@ function TeamSection({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") setExpanded((v) => !v);
         }}
-        className="w-full px-4 py-2 flex items-center gap-3 bg-gray-900 hover:bg-gray-800 text-left cursor-pointer"
+        className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-800/40"
       >
+        <Icon name={expanded ? "chevron-down" : "chevron-right"} size={14} className="flex-shrink-0 text-gray-500" />
+        <StatusDot status={status} />
         {renaming && id ? (
           <TeamRenameControl teamId={id} currentName={name} onDone={() => setRenaming(false)} />
         ) : (
@@ -170,46 +181,53 @@ function TeamSection({
             {id && (
               <button
                 type="button"
-                className="text-xs text-gray-500 hover:text-green-400"
+                aria-label="Rename team"
+                className="text-gray-600 hover:text-green-400"
                 onClick={(e) => {
                   e.stopPropagation();
                   setRenaming(true);
                 }}
               >
-                ✎
+                <Icon name="pencil" size={12} />
               </button>
             )}
           </>
         )}
-        <Badge status={status} />
         <span className="text-xs text-gray-500">
           {agents.length} agent{agents.length === 1 ? "" : "s"}
         </span>
+        {attention > 0 && (
+          <span className="rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300 ring-1 ring-red-500/30">
+            {attention} need{attention === 1 ? "s" : ""} attention
+          </span>
+        )}
         {id && (
           <button
             type="button"
-            className="ml-auto text-xs px-2 py-0.5 rounded border border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-500"
+            aria-label="Delete team"
+            className="ml-auto rounded border border-transparent px-2 py-0.5 text-xs text-gray-600 hover:border-red-500/50 hover:bg-red-950/40 hover:text-red-300"
             disabled={deleteTeam.isPending}
             onClick={handleDelete}
           >
             {deleteTeam.isPending ? "Deleting…" : "Delete"}
           </button>
         )}
-        <span className={id ? "text-gray-500" : "ml-auto text-gray-500"}>{expanded ? "−" : "+"}</span>
       </div>
       {deleteTeam.error && (
-        <p className="px-4 pb-2 text-xs text-red-400">
-          {deleteTeam.error instanceof Error ? deleteTeam.error.message : String(deleteTeam.error)}
+        <p className="px-4 pb-2">
+          <ErrorText error={deleteTeam.error} />
         </p>
       )}
       {expanded && (
-        <div className="divide-y divide-gray-800">
-          {sorted.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} />
-          ))}
+        <div className="divide-y divide-gray-800/70 border-t border-gray-800">
+          {sorted.length === 0 ? (
+            <div className="px-4 py-3 text-xs text-gray-500">No agents in this team yet.</div>
+          ) : (
+            sorted.map((agent) => <AgentRow key={agent.id} agent={agent} />)
+          )}
         </div>
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -226,48 +244,33 @@ function NewTeamForm({ onDone }: { onDone: () => void }) {
   });
 
   return (
-    <form
-      className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (name.trim()) create.mutate();
-      }}
-    >
-      <h2 className="font-semibold text-gray-200 mb-2 text-sm">New team</h2>
-      <input
-        aria-label="Team name"
-        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        placeholder="Team name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        disabled={create.isPending}
-      />
-      <input
-        aria-label="Team description"
-        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        placeholder="Description (optional)"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        disabled={create.isPending}
-      />
-      <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
-          disabled={create.isPending || !name.trim()}
-        >
-          {create.isPending ? "Creating…" : "Create team"}
-        </button>
-        <button type="button" className="text-sm text-gray-500" onClick={onDone}>
-          Cancel
-        </button>
-        {create.error && (
-          <span className="text-xs text-red-400">
-            {create.error instanceof Error ? create.error.message : String(create.error)}
-          </span>
-        )}
-      </div>
-    </form>
+    <Panel className="mb-3 p-4">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) create.mutate();
+        }}
+      >
+        <h2 className="mb-3 text-sm font-semibold text-gray-200">New team</h2>
+        <div className="mb-3">
+          <Label>Name</Label>
+          <TextInput aria-label="Team name" placeholder="e.g. Platform" value={name} onChange={(e) => setName(e.target.value)} disabled={create.isPending} />
+        </div>
+        <div className="mb-3">
+          <Label>Description</Label>
+          <TextInput aria-label="Team description" placeholder="Optional" value={description} onChange={(e) => setDescription(e.target.value)} disabled={create.isPending} />
+        </div>
+        <div className="flex items-center gap-3">
+          <Button type="submit" variant="primary" size="sm" disabled={create.isPending || !name.trim()}>
+            {create.isPending ? "Creating…" : "Create team"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+            Cancel
+          </Button>
+          {create.error && <ErrorText error={create.error} />}
+        </div>
+      </form>
+    </Panel>
   );
 }
 
@@ -294,80 +297,59 @@ function NewAgentForm({ teams, onDone }: { teams: OrgViewTeam[]; onDone: () => v
   });
 
   return (
-    <form
-      className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (name.trim() && role.trim()) create.mutate();
-      }}
-    >
-      <h2 className="font-semibold text-gray-200 mb-2 text-sm">New agent</h2>
-      <input
-        aria-label="Agent name"
-        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        placeholder="Name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        disabled={create.isPending}
-      />
-      <input
-        aria-label="Agent role"
-        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        placeholder="Role (e.g. Backend Engineer)"
-        value={role}
-        onChange={(e) => setRole(e.target.value)}
-        disabled={create.isPending}
-      />
-      <select
-        aria-label="Team"
-        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        value={teamId}
-        onChange={(e) => setTeamId(e.target.value)}
-        disabled={create.isPending}
+    <Panel className="mb-3 p-4">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim() && role.trim()) create.mutate();
+        }}
       >
-        <option value="">Unassigned</option>
-        {teams.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name}
-          </option>
-        ))}
-      </select>
-      <textarea
-        aria-label="Charter"
-        className="w-full h-16 border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        placeholder="Charter (markdown, optional — defaults to a stub)"
-        value={charter}
-        onChange={(e) => setCharter(e.target.value)}
-        disabled={create.isPending}
-      />
-      <select
-        aria-label="Engine"
-        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        value={engine}
-        onChange={(e) => setEngine(e.target.value)}
-        disabled={create.isPending}
-      >
-        <option value="fake">Fake (scripted demo playback, free)</option>
-        <option value="claude-code">Claude Code (real CLI, real cost)</option>
-      </select>
-      <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
-          disabled={create.isPending || !name.trim() || !role.trim()}
-        >
-          {create.isPending ? "Creating…" : "Create agent"}
-        </button>
-        <button type="button" className="text-sm text-gray-500" onClick={onDone}>
-          Cancel
-        </button>
-        {create.error && (
-          <span className="text-xs text-red-400">
-            {create.error instanceof Error ? create.error.message : String(create.error)}
-          </span>
-        )}
-      </div>
-    </form>
+        <h2 className="mb-3 text-sm font-semibold text-gray-200">New agent</h2>
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div>
+            <Label>Name</Label>
+            <TextInput aria-label="Agent name" placeholder="e.g. Orbit" value={name} onChange={(e) => setName(e.target.value)} disabled={create.isPending} />
+          </div>
+          <div>
+            <Label>Role</Label>
+            <TextInput aria-label="Agent role" placeholder="e.g. Backend Engineer" value={role} onChange={(e) => setRole(e.target.value)} disabled={create.isPending} />
+          </div>
+        </div>
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div>
+            <Label>Team</Label>
+            <Select aria-label="Team" value={teamId} onChange={(e) => setTeamId(e.target.value)} disabled={create.isPending}>
+              <option value="">Unassigned</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label>Engine</Label>
+            <Select aria-label="Engine" value={engine} onChange={(e) => setEngine(e.target.value)} disabled={create.isPending}>
+              <option value="fake">Fake — scripted demo, free</option>
+              <option value="claude-code">Claude Code — real CLI, real cost</option>
+            </Select>
+          </div>
+        </div>
+        <div className="mb-3">
+          <Label>Charter (markdown, optional)</Label>
+          <TextArea aria-label="Charter" className="h-20" placeholder="Instructions for this agent — defaults to a stub if left blank." value={charter} onChange={(e) => setCharter(e.target.value)} disabled={create.isPending} />
+        </div>
+        <div className="flex items-center gap-3">
+          <Button type="submit" variant="primary" size="sm" disabled={create.isPending || !name.trim() || !role.trim()}>
+            {create.isPending ? "Creating…" : "Create agent"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+            Cancel
+          </Button>
+          {create.error && <ErrorText error={create.error} />}
+        </div>
+      </form>
+    </Panel>
   );
 }
 
@@ -378,32 +360,47 @@ export default function OrgView() {
   });
   const [openForm, setOpenForm] = useState<"team" | "agent" | null>(null);
 
-  if (isLoading) return <div className="p-6 text-gray-500">Loading organization…</div>;
-  if (error)
-    return <div className="p-6 text-red-400">Error: {error instanceof Error ? error.message : String(error)}</div>;
+  if (isLoading) return <Loading label="Loading organization…" />;
+  if (error) return <ErrorState error={error} />;
   if (!org) return null;
 
+  const isEmpty = org.teams.length === 0 && org.unassignedAgents.length === 0;
+
   return (
-    <div className="p-6 max-w-3xl">
-      <div className="flex items-center mb-4">
-        <h1 className="text-2xl font-bold text-gray-100"><span className="text-green-500">$</span> Organization</h1>
-        <div className="ml-auto flex gap-2">
-          <button
-            className="px-3 py-1 rounded border border-gray-700 text-sm text-gray-300 hover:bg-gray-800"
-            onClick={() => setOpenForm(openForm === "team" ? null : "team")}
-          >
-            + New team
-          </button>
-          <button
-            className="px-3 py-1 rounded border border-gray-700 text-sm text-gray-300 hover:bg-gray-800"
-            onClick={() => setOpenForm(openForm === "agent" ? null : "agent")}
-          >
-            + New agent
-          </button>
-        </div>
-      </div>
+    <div className="mx-auto max-w-3xl p-6">
+      <PageHeader
+        title="Organization"
+        subtitle="Every agent, grouped by team — exceptions surfaced first."
+        actions={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setOpenForm(openForm === "team" ? null : "team")}>
+              + New team
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setOpenForm(openForm === "agent" ? null : "agent")}>
+              + New agent
+            </Button>
+          </>
+        }
+      />
+
       {openForm === "team" && <NewTeamForm onDone={() => setOpenForm(null)} />}
       {openForm === "agent" && <NewAgentForm teams={org.teams} onDone={() => setOpenForm(null)} />}
+
+      {isEmpty && openForm === null && (
+        <Panel>
+          <EmptyState
+            icon={<Icon name="users" size={28} />}
+            title="No agents yet."
+            hint="Create your first agent to start delegating work. Agents are persistent specialists — they outlive any single conversation."
+            action={
+              <Button variant="primary" size="sm" onClick={() => setOpenForm("agent")}>
+                + New agent
+              </Button>
+            }
+          />
+        </Panel>
+      )}
+
       {org.teams.map((team: OrgViewTeam) => (
         <TeamSection key={team.id} id={team.id} name={team.name} status={team.status} agents={team.agents} />
       ))}

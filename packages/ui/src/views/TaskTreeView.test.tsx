@@ -243,7 +243,7 @@ describe("TaskTreeView", () => {
 
     renderTaskTreeView("root-task-id");
 
-    await screen.findByText(/Error.*Network error/);
-    expect(screen.getByText(/Error.*Network error/)).toBeTruthy();
+    await screen.findByText("Something went wrong");
+    expect(screen.getByText("Network error")).toBeTruthy();
   });
 });

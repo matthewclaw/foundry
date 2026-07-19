@@ -142,6 +142,7 @@ describe("ClaudeSessionsView", () => {
 
     renderView();
 
-    await screen.findByText(/Error.*Network error/);
+    await screen.findByText("Something went wrong");
+    await screen.findByText("Network error");
   });
 });

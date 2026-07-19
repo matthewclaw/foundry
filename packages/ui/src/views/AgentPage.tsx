@@ -1,15 +1,31 @@
 /**
- * E7.3 — Agent page (doc-06): identity, status, charter (editable, versioned),
- * open workstreams (linked to their timeline), open tasks, relationships, engine.
- * Charter edits PATCH /api/agents/:id {charter_md} and invalidate the agent query.
+ * Agent page (doc-06): identity, status, charter (editable, versioned), open workstreams
+ * (linked to their timeline), open tasks, relationships, engine. Charter edits PATCH
+ * /api/agents/:id {charter_md} and invalidate the agent query.
  */
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client.js";
 import type { AgentPageDto } from "../api/types.js";
-import { Badge } from "./OrgView.js";
 import Markdown from "react-markdown";
+import {
+  Badge,
+} from "./OrgView.js";
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  ErrorText,
+  Icon,
+  Label,
+  Loading,
+  PageHeader,
+  Section,
+  TextArea,
+  TextInput,
+  cx,
+} from "../components/ui.js";
 
 function CharterSection({ agentId, charter }: { agentId: string; charter: AgentPageDto["charter"] }) {
   const queryClient = useQueryClient();
@@ -24,54 +40,50 @@ function CharterSection({ agentId, charter }: { agentId: string; charter: AgentP
   });
 
   return (
-    <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
-      <div className="flex items-center gap-3 mb-2">
-        <h2 className="font-semibold text-gray-200">Charter</h2>
-        {charter && <span className="text-xs text-gray-500">v{charter.version}</span>}
-        {!editing && (
-          <button
-            className="ml-auto text-sm text-green-400 hover:underline"
+    <Section
+      title="Charter"
+      meta={charter && <span className="font-mono text-xs text-gray-500">v{charter.version}</span>}
+      actions={
+        !editing && (
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => {
               setDraft(charter?.body_md ?? "");
               setEditing(true);
             }}
           >
-            Edit
-          </button>
-        )}
-      </div>
+            <Icon name="pencil" size={12} /> Edit
+          </Button>
+        )
+      }
+    >
       {editing ? (
         <div>
-          <textarea
+          <TextArea
             aria-label="Charter editor"
-            className="w-full h-48 border border-gray-700 bg-black text-gray-200 rounded p-2 text-sm font-mono focus:outline-none focus:border-green-600"
+            className="h-56 font-mono text-xs"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />
-          <div className="mt-2 flex gap-2 items-center">
-            <button
-              className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
-              disabled={save.isPending}
-              onClick={() => save.mutate(draft)}
-            >
+          <div className="mt-2 flex items-center gap-3">
+            <Button variant="primary" size="sm" disabled={save.isPending} onClick={() => save.mutate(draft)}>
               {save.isPending ? "Saving…" : "Save"}
-            </button>
-            <button className="text-sm text-gray-500" onClick={() => setEditing(false)}>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
               Cancel
-            </button>
-            {save.error && (
-              <span className="text-sm text-red-400">
-                {save.error instanceof Error ? save.error.message : String(save.error)}
-              </span>
-            )}
+            </Button>
+            {save.error && <ErrorText error={save.error} />}
           </div>
         </div>
       ) : charter ? (
-        <Markdown>{charter.body_md}</Markdown>
+        <div className="prose prose-sm prose-invert max-w-none">
+          <Markdown>{charter.body_md}</Markdown>
+        </div>
       ) : (
         <p className="text-sm text-gray-500">No charter yet — use Edit to write one.</p>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -91,10 +103,9 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
         workspace_ref: !repoPath.trim()
           ? undefined
           : useWorktree
-            ? // The runtime only ever reads `repo_path` off a git_worktree ref — it
-              // derives its own worktree location and branch (E4.4) — so
-              // worktree_path/branch here are schema-required placeholders, not
-              // settings that do anything.
+            ? // The runtime only ever reads `repo_path` off a git_worktree ref — it derives
+              // its own worktree location and branch (E4.4) — so worktree_path/branch here
+              // are schema-required placeholders, not settings that do anything.
               { kind: "git_worktree", repo_path: repoPath.trim(), worktree_path: repoPath.trim(), branch: "main" }
             : { kind: "plain_dir", path: repoPath.trim() },
       }),
@@ -106,76 +117,62 @@ function NewWorkstreamForm({ agentId, onDone }: { agentId: string; onDone: () =>
   });
 
   return (
-    <form
-      className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (title.trim()) create.mutate();
-      }}
-    >
-      <h2 className="font-semibold text-gray-200 mb-2 text-sm">New workstream</h2>
-      <input
-        aria-label="Workstream title"
-        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        placeholder="Title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        disabled={create.isPending}
-      />
-      <textarea
-        aria-label="Goal"
-        className="w-full h-16 border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        placeholder="Goal (what should the agent accomplish?)"
-        value={goal}
-        onChange={(e) => setGoal(e.target.value)}
-        disabled={create.isPending}
-      />
-      <input
-        aria-label="Repo path"
-        className="w-full border border-gray-700 bg-gray-900 text-gray-200 rounded p-2 text-sm mb-2 focus:outline-none focus:border-green-600"
-        placeholder="Repo folder path (optional — e.g. C:\repos\my-project)"
-        value={repoPath}
-        onChange={(e) => setRepoPath(e.target.value)}
-        disabled={create.isPending}
-      />
-      {repoPath.trim() && (
-        <div className="mb-2">
-          <label className="flex items-center gap-2 text-xs text-gray-400">
-            <input
-              type="checkbox"
-              checked={useWorktree}
-              onChange={(e) => setUseWorktree(e.target.checked)}
-              disabled={create.isPending}
-            />
-            Use an isolated git worktree (recommended)
-          </label>
-          <p className="text-xs text-gray-500 mt-1">
-            {useWorktree
-              ? "The agent works in its own git worktree copy of this repo — changes stay isolated until you merge them."
-              : "The agent works directly in this folder, no isolation — its edits land straight on your working tree."}
-          </p>
+    <div className="mb-3 rounded-lg border border-gray-800 bg-gray-950/40 p-4">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (title.trim()) create.mutate();
+        }}
+      >
+        <h3 className="mb-3 text-sm font-semibold text-gray-200">New workstream</h3>
+        <div className="mb-3">
+          <Label>Title</Label>
+          <TextInput aria-label="Workstream title" placeholder="What is this thread of work?" value={title} onChange={(e) => setTitle(e.target.value)} disabled={create.isPending} />
         </div>
-      )}
-      <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-sm disabled:opacity-50"
-          disabled={create.isPending || !title.trim()}
-        >
-          {create.isPending ? "Creating…" : "Create workstream"}
-        </button>
-        <button type="button" className="text-sm text-gray-500" onClick={onDone}>
-          Cancel
-        </button>
-        {create.error && (
-          <span className="text-xs text-red-400">
-            {create.error instanceof Error ? create.error.message : String(create.error)}
-          </span>
+        <div className="mb-3">
+          <Label>Goal</Label>
+          <TextArea aria-label="Goal" className="h-16" placeholder="What should the agent accomplish?" value={goal} onChange={(e) => setGoal(e.target.value)} disabled={create.isPending} />
+        </div>
+        <div className="mb-3">
+          <Label>Repo folder (optional)</Label>
+          <TextInput aria-label="Repo path" placeholder="e.g. C:\repos\my-project" value={repoPath} onChange={(e) => setRepoPath(e.target.value)} disabled={create.isPending} />
+        </div>
+        {repoPath.trim() && (
+          <div className={cx("mb-3 rounded-md border p-3", useWorktree ? "border-gray-800 bg-gray-900/40" : "border-amber-800/50 bg-amber-950/20")}>
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input type="checkbox" className="accent-green-600" checked={useWorktree} onChange={(e) => setUseWorktree(e.target.checked)} disabled={create.isPending} />
+              Use an isolated git worktree (recommended)
+            </label>
+            <p className={cx("mt-1.5 text-xs", useWorktree ? "text-gray-500" : "text-amber-400/90")}>
+              {useWorktree ? (
+                "The agent works in its own git worktree copy — changes stay isolated until you merge them."
+              ) : (
+                <><Icon name="alert" size={11} className="mr-1 inline" />No isolation — the agent's edits land straight on your working tree.</>
+              )}
+            </p>
+          </div>
         )}
-      </div>
-    </form>
+        <div className="flex items-center gap-3">
+          <Button type="submit" variant="primary" size="sm" disabled={create.isPending || !title.trim()}>
+            {create.isPending ? "Creating…" : "Create workstream"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+            Cancel
+          </Button>
+          {create.error && <ErrorText error={create.error} />}
+        </div>
+      </form>
+    </div>
   );
 }
+
+const WS_STATE_CLASS: Record<string, string> = {
+  active: "text-green-400",
+  waiting: "text-amber-400",
+  blocked: "text-red-400",
+  review: "text-blue-400",
+  closed: "text-gray-500",
+};
 
 export default function AgentPage() {
   const { id } = useParams<{ id: string }>();
@@ -186,87 +183,95 @@ export default function AgentPage() {
   });
   const [showNewWorkstream, setShowNewWorkstream] = useState(false);
 
-  if (isLoading) return <div className="p-6 text-gray-500">Loading agent…</div>;
-  if (error)
-    return <div className="p-6 text-red-400">Error: {error instanceof Error ? error.message : String(error)}</div>;
+  if (isLoading) return <Loading label="Loading agent…" />;
+  if (error) return <ErrorState error={error} />;
   if (!data) return null;
 
   return (
-    <div className="p-6 max-w-3xl">
-      <header className="mb-4">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-100"><span className="text-green-500">$</span> {data.agent.name}</h1>
-          <Badge status={data.status} />
-        </div>
-        <p className="text-sm text-gray-400 mt-1">
-          {data.agent.role} · {data.agent.state} · engine: {data.agent.engine.id}
-        </p>
-      </header>
+    <div className="mx-auto max-w-3xl p-6">
+      <PageHeader
+        breadcrumb={
+          <Link to="/" className="inline-flex items-center gap-1 hover:text-gray-300">
+            <Icon name="arrow-left" size={12} /> Organization
+          </Link>
+        }
+        title={data.agent.name}
+        subtitle={
+          <span className="flex flex-wrap items-center gap-2">
+            <Badge status={data.status} />
+            <span className="text-gray-500">{data.agent.role}</span>
+            <span className="text-gray-700" aria-hidden>·</span>
+            <span className="text-gray-500">engine: {data.agent.engine.id}</span>
+          </span>
+        }
+      />
 
       <CharterSection agentId={data.agent.id} charter={data.charter} />
 
-      <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
-        <div className="flex items-center mb-2">
-          <h2 className="font-semibold text-gray-200">Workstreams</h2>
-          <button
-            className="ml-auto text-sm text-green-400 hover:underline"
-            onClick={() => setShowNewWorkstream((s) => !s)}
-          >
+      <Section
+        title="Workstreams"
+        actions={
+          <Button variant="ghost" size="sm" onClick={() => setShowNewWorkstream((s) => !s)}>
             {showNewWorkstream ? "Cancel" : "+ New workstream"}
-          </button>
-        </div>
-        {showNewWorkstream && (
-          <NewWorkstreamForm agentId={data.agent.id} onDone={() => setShowNewWorkstream(false)} />
-        )}
+          </Button>
+        }
+      >
+        {showNewWorkstream && <NewWorkstreamForm agentId={data.agent.id} onDone={() => setShowNewWorkstream(false)} />}
         {data.workstreams.length === 0 ? (
-          <p className="text-sm text-gray-500">None.</p>
+          !showNewWorkstream && (
+            <EmptyState
+              compact
+              icon={<Icon name="message" size={24} />}
+              title="No workstreams yet."
+              hint="A workstream is a long-lived thread of intent against this agent."
+            />
+          )
         ) : (
-          <ul className="divide-y divide-gray-800">
+          <ul className="divide-y divide-gray-800/70">
             {data.workstreams.map((ws) => (
-              <li key={ws.id} className="py-1.5 flex items-center gap-2 text-sm">
-                <Link to={`/workstreams/${ws.id}`} className="text-green-400 hover:underline">
+              <li key={ws.id} className="flex items-center gap-2 py-2">
+                <Link to={`/workstreams/${ws.id}`} className="text-sm text-gray-200 hover:text-green-300 hover:underline">
                   {ws.title}
                 </Link>
-                <span className="text-xs text-gray-500">{ws.state}</span>
+                <span className={cx("ml-auto text-xs", WS_STATE_CLASS[ws.state] ?? "text-gray-500")}>{ws.state}</span>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
-      <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
-        <h2 className="font-semibold text-gray-200 mb-2">Open tasks</h2>
+      <Section title="Open tasks">
         {data.openTasks.length === 0 ? (
-          <p className="text-sm text-gray-500">None.</p>
+          <p className="text-sm text-gray-500">None — nothing delegated to this agent is open.</p>
         ) : (
-          <ul className="divide-y divide-gray-800">
+          <ul className="divide-y divide-gray-800/70">
             {data.openTasks.map((t) => (
-              <li key={t.id} className="py-1.5 text-sm text-gray-200">
-                {t.spec_md.slice(0, 100)}
-                <span className="ml-2 text-xs text-gray-500">{t.state}</span>
+              <li key={t.id} className="flex items-center gap-2 py-2 text-sm text-gray-200">
+                <span className="min-w-0 flex-1 truncate">{t.spec_md.slice(0, 100)}</span>
+                <span className="ml-auto flex-shrink-0 text-xs text-gray-500">{t.state}</span>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
-      <section className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-        <h2 className="font-semibold text-gray-200 mb-2">Relationships</h2>
+      <Section title="Relationships">
         {data.relationships.length === 0 ? (
           <p className="text-sm text-gray-500">No interactions yet.</p>
         ) : (
-          <ul className="text-sm text-gray-200 space-y-1">
+          <ul className="space-y-1.5 text-sm">
             {data.relationships.map((r) => (
-              <li key={r.actor_id}>
-                {r.actor_id}
-                <span className="ml-2 text-xs text-gray-500">
-                  {r.weight} interaction{r.weight === 1 ? "" : "s"} · last {r.last_interaction_at}
+              <li key={r.actor_id} className="flex items-center gap-2">
+                <Icon name="users" size={13} className="text-gray-600" />
+                <span className="font-mono text-xs text-gray-300">{r.actor_id}</span>
+                <span className="ml-auto text-xs text-gray-500">
+                  {r.weight} interaction{r.weight === 1 ? "" : "s"} · last {new Date(r.last_interaction_at).toLocaleDateString()}
                 </span>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
     </div>
   );
 }
