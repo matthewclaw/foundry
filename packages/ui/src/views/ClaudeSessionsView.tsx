@@ -3,7 +3,7 @@
  * folder they belong to — whether Foundry started the session or a human ran `claude`
  * directly (GET /api/claude-sessions). Entirely separate from Foundry's own runs.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import { apiClient } from "../api/client.js";
@@ -42,6 +42,12 @@ function SessionRow({ projectDir, session }: { projectDir: string; session: Clau
     enabled: expanded,
   });
 
+  // Open a chat at its last message — that's where the interesting part usually is.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (data && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [data]);
+
   return (
     <div className="px-4 py-2.5">
       <div
@@ -62,7 +68,7 @@ function SessionRow({ projectDir, session }: { projectDir: string; session: Clau
         </span>
       </div>
       {expanded && (
-        <div className="mt-2 max-h-[32rem] space-y-2 overflow-y-auto pl-6">
+        <div ref={scrollRef} className="mt-2 max-h-[32rem] space-y-2 overflow-y-auto pl-6">
           {isLoading && <p className="text-xs text-gray-500">Loading transcript…</p>}
           {error && <p className="text-xs text-red-400">{error instanceof Error ? error.message : String(error)}</p>}
           {data?.turns.map((turn, i) => (

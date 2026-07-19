@@ -252,7 +252,7 @@ function TurnBlock({
         )}
         {run.ended_at && <span>ended {new Date(run.ended_at).toLocaleString()}</span>}
         {cost !== undefined && <span>${cost.toFixed(4)}</span>}
-        {entry.transcriptSource === "none" && (
+        {entry.transcriptSource === "none" && run.ended_at && (
           <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-amber-400">limited engine detail</span>
         )}
       </div>
@@ -434,12 +434,28 @@ function ConversationCard({
     (r) => liveText[r.run.id] !== undefined && RUN_NONTERMINAL_STATES.has(r.run.state)
   );
   const totalCost = runs.reduce((sum, r) => sum + (r.run.usage?.cost_usd ?? 0), 0);
-  const anyLimited = runs.some((r) => r.transcriptSource === "none");
+  // "none" transcript only means capability degradation once a run has actually ended —
+  // an in-flight run simply hasn't produced output yet, so don't flag it as limited.
+  const anyLimited = runs.some((r) => r.transcriptSource === "none" && r.run.ended_at);
   const resumable = !!lastRun.run.engine_session_id;
 
   useEffect(() => {
     if (anyLive) setExpanded(true);
   }, [anyLive]);
+
+  // A conversation reads like a chat: open it at the latest message (with the composer in
+  // view), and follow new turns / streaming output — unless you've scrolled up to read
+  // back, in which case we leave you where you are.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const liveLen = runs.reduce((n, r) => n + (liveText[r.run.id]?.length ?? 0), 0);
+  useEffect(() => {
+    if (expanded && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [expanded]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !expanded) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
+  }, [expanded, runs.length, liveLen]);
 
   return (
     <Panel
@@ -524,7 +540,7 @@ function ConversationCard({
               ))}
             </div>
           </div>
-          <div className="max-h-[36rem] space-y-4 overflow-y-auto pr-1">
+          <div ref={scrollRef} className="max-h-[36rem] space-y-4 overflow-y-auto pr-1">
             {runs.map((entry) => (
               <TurnBlock key={entry.run.id} entry={entry} view={view} liveText={liveText[entry.run.id]} />
             ))}
