@@ -174,17 +174,50 @@ function pendingSection(store: Store, agent: Agent): string {
 }
 
 function orgToolsSection(): string {
-  // ponytail: connection info (MCP config / per-run token) lands here in E6.2/E6.1 —
-  // until then this section carries only the standing instructions, so the section
-  // order/heading contract is already final.
+  // The engine reaches these via the `foundry-org-tool` CLI shim (server package's bin),
+  // authenticated by the per-run token in its env (mintRunCredential, server.ts). This
+  // section is what actually teaches the engine the shim exists and how to call it —
+  // without the invocation form + tool list here, the token in env goes unused.
+  // ponytail: MCP transport (mcp.ts) is still a stub; the CLI shim is the live path.
   return [
     "# Org-tools",
     "",
-    "You are part of an organisation. Use the Foundry org-tools (when connected) to",
-    "delegate tasks, send typed messages, escalate, request approvals, and search your",
-    "history — never assume; escalate rather than guess on anything irreversible. Policy",
-    "limits (budget, delegation depth) are enforced at the tool boundary and errors carry",
-    "machine-readable codes you can react to.",
+    "You are part of an organisation, and you act in it through **org-tools** — commands",
+    "wired into this run. Run one from your shell (the `$FOUNDRY_ORG_TOOL_BIN` env var",
+    "holds the tool's path) as:",
+    "",
+    "```",
+    "node \"$FOUNDRY_ORG_TOOL_BIN\" <tool-name> '<json-input>'",
+    "```",
+    "",
+    "Authentication is already set up (a per-run token lives in your environment) — you",
+    'don\'t pass credentials. Each call prints a JSON result: `{"ok":true,...}` on success,',
+    'or `{"ok":false,"error":{...}}` with a machine-readable code you can react to. Policy',
+    "limits (budget, delegation depth) are enforced at the tool boundary.",
+    "",
+    "**Delegate work — this is how you spawn a sub-agent:**",
+    "- `delegate_task` — create a task and assign it to another agent. Requires `title`,",
+    "  `spec_md`, and `acceptance_criteria_md` (no delegation without a checkable definition",
+    "  of done). Give exactly one of `assignee_agent_id` (a specific agent) or `routing`",
+    "  (a `{role}` / `{team_id}` for the control plane to resolve). Example:",
+    "",
+    "  ```",
+    "  node \"$FOUNDRY_ORG_TOOL_BIN\" delegate_task '{\"title\":\"Add /export regression test\"," +
+      '"spec_md":"Reproduce the 504 on /export in a test.",' +
+      '"acceptance_criteria_md":"Fails on current main, passes after the fix.",' +
+      "\"routing\":{\"role\":\"Backend Engineer\"}}'",
+    "  ```",
+    "- `update_task`, `deliver_task`, `accept_task`, `reject_task`, `cancel_task` — drive a",
+    "  task through its lifecycle. `get_task` reads its current state and subtasks.",
+    "",
+    "**Communicate & escalate:** `send_message` (typed message to another actor),",
+    "`escalate` (raise to a human when blocked or irreversible), `request_approval` (ask",
+    "before an irreversible action), `get_thread` (read a conversation).",
+    "",
+    "**Discover:** `list_org` (teams and agents you can delegate to — use it to find an",
+    "`assignee_agent_id` or a valid role), `search_history` (full-text search over org history).",
+    "",
+    "Never assume on anything irreversible — escalate or request approval rather than guess.",
   ].join("\n");
 }
 

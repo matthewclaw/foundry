@@ -12,6 +12,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createStore, type Store, computeAgentStatusFacts } from "@foundry/store";
 import { createRuntime, type AdapterRegistry, type Runtime, type RunQueueLimits } from "@foundry/runtime";
 import { composeContext } from "./context/compose.js";
@@ -63,6 +64,10 @@ export function createServer(config: ServerConfig): FoundryServer {
   mkdirSync(config.dataDir, { recursive: true });
   const store = createStore({ dataDir: config.dataDir, dbPath: config.dbPath });
   const tokens = createTokenRegistry();
+  // Absolute path to the org-tools CLI shim (compiled alongside this module). The engine
+  // has no `foundry-org-tool` on its PATH — its workspace is an arbitrary folder — so we
+  // hand it the shim's path in cliEnv and the composed context tells it to run it via node.
+  const orgToolShim = fileURLToPath(new URL("./orgtools/shim.js", import.meta.url));
   const runSettled = new Map<string, Array<() => void>>();
   // Known once listen() returns; runs enqueued before that mint URL-less credentials
   // (fine — nothing can call the API before it listens either).
@@ -86,6 +91,7 @@ export function createServer(config: ServerConfig): FoundryServer {
         cliEnv: {
           FOUNDRY_ORG_TOOLS_URL: `${baseUrl}/api/org-tools`,
           FOUNDRY_ORG_TOOLS_TOKEN: token,
+          FOUNDRY_ORG_TOOL_BIN: orgToolShim,
         },
       };
     },
