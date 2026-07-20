@@ -25,6 +25,7 @@ const ALLOWED_WRITE_FILES = new Set([
   "mutations/tasks.ts",
   "mutations/messages.ts",
   "mutations/approvals.ts",
+  "mutations/deletes.ts",
   "artifacts/store.ts",
   // compactRunDeltas' DELETE runs inside a mutate() apply() callback, same as every
   // mutations/*.ts helper — it just lives here because contracts.md places compaction

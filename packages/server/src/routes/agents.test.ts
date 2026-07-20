@@ -508,4 +508,31 @@ describe("Agent routes (E5.2)", () => {
     });
     expect(res3.statusCode).toBe(404);
   });
+
+  it("DELETE /api/agents/:id 204 — hard-deletes the agent, its actor, and its workstreams", async () => {
+    const created = await server.app.inject({
+      method: "POST",
+      url: "/api/agents",
+      payload: { name: "Doomed", role: "worker", charter_md: "# c", engine: { id: "fake" } },
+    });
+    const agentId = JSON.parse(created.body).id;
+    const actorId = server.store.agents.get(agentId)!.actor_id;
+    const wsRes = await server.app.inject({
+      method: "POST",
+      url: "/api/workstreams",
+      payload: { agent_id: agentId, title: "WS", goal_md: "# g" },
+    });
+    const wsId = JSON.parse(wsRes.body).id;
+
+    const res = await server.app.inject({ method: "DELETE", url: `/api/agents/${agentId}` });
+    expect(res.statusCode).toBe(204);
+    expect(server.store.agents.get(agentId)).toBeUndefined();
+    expect(server.store.workstreams.get(wsId)).toBeUndefined();
+    expect(server.store.db.prepare(`SELECT COUNT(*) n FROM actors WHERE id = ?`).get(actorId)).toEqual({ n: 0 });
+  });
+
+  it("DELETE /api/agents/:id 404 — unknown agent", async () => {
+    const res = await server.app.inject({ method: "DELETE", url: "/api/agents/nonexistent" });
+    expect(res.statusCode).toBe(404);
+  });
 });

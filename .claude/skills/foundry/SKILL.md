@@ -51,7 +51,10 @@ restart to take effect.
 | `POST /api/workstreams` | open a workstream against an agent |
 | `GET  /api/workstreams/:id/timeline` | runs + events + conversation transcript (poll this to watch) |
 | `POST /api/workstreams/:id/messages` | send a message → **enqueues a run**; returns `{message_id, run_id}` |
-| `POST /api/workstreams/:id/close` | close (optional `distill` run first) |
+| `POST /api/workstreams/:id/close` | close (optional `distill` run first) — soft |
+| `DELETE /api/workstreams/:id` | **hard delete** (housekeeping): cancels live runs, purges the workstream + its runs/events/artifacts/messages. 204. Irreversible |
+| `POST /api/agents/:id/retire` | retire — soft delete (blocked if the agent has open tasks) |
+| `DELETE /api/agents/:id` | **hard delete** (housekeeping): cancels live runs, purges the agent + its actor/workstreams/tasks/charters. 204. Irreversible |
 | `POST /api/runs/:id/cancel` · `POST /api/runs/:id/title` | cancel / rename a run |
 | `GET  /api/events` | SSE feed of everything (replayable via `?from_seq=`) |
 | `GET  /api/tasks/:id/tree` | delegation tree for a task |

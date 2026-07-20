@@ -507,4 +507,25 @@ describe("Workstream routes (E5.3)", () => {
 
     expect(res.statusCode).toBe(202);
   });
+
+  it("DELETE /api/workstreams/:id 204 — hard-deletes the workstream", async () => {
+    const agentId = await createAgent();
+    const wsRes = await server.app.inject({
+      method: "POST",
+      url: "/api/workstreams",
+      payload: { agent_id: agentId, title: "Disposable", goal_md: "# Goal" },
+    });
+    const workstreamId = JSON.parse(wsRes.body).id;
+
+    const res = await server.app.inject({ method: "DELETE", url: `/api/workstreams/${workstreamId}` });
+    expect(res.statusCode).toBe(204);
+    expect(server.store.workstreams.get(workstreamId)).toBeUndefined();
+    // agent survives
+    expect(server.store.agents.get(agentId)).toBeDefined();
+  });
+
+  it("DELETE /api/workstreams/:id 404 — unknown workstream", async () => {
+    const res = await server.app.inject({ method: "DELETE", url: "/api/workstreams/nonexistent" });
+    expect(res.statusCode).toBe(404);
+  });
 });

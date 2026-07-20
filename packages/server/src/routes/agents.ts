@@ -237,4 +237,27 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: RouteContext): vo
       return reply.status(200).send(updated);
     }
   );
+
+  // DELETE /api/agents/:id — hard delete (housekeeping), the counterpart to retire's
+  // soft delete. Cancels any live runs, then purges the agent and everything it owns:
+  // its workstreams (with their runs/events/artifacts/messages), charters, schedules,
+  // tasks assigned to it, and its actor. Tasks it delegated to other agents survive.
+  // Irreversible — use retire to keep the audited history.
+  app.delete<{ Params: { id: string } }>("/api/agents/:id", async (request, reply) => {
+    const agentId = request.params.id as AgentId;
+    if (!ctx.store.agents.get(agentId)) {
+      throw new ProblemError(404, "Agent not found", `Agent ${agentId} does not exist`);
+    }
+
+    for (const ws of ctx.store.workstreams.list({ agent_id: agentId })) {
+      for (const run of ctx.store.runs.list({ workstream_id: ws.id })) {
+        if (!terminalStates("run").includes(run.state)) {
+          await ctx.runtime.cancelRun(run.id, "agent deleted").catch(() => {});
+        }
+      }
+      ctx.runtime.releaseWorkspace(ws.id);
+    }
+    ctx.store.commands.deleteAgent(agentId);
+    return reply.status(204).send();
+  });
 }

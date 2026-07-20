@@ -6,7 +6,7 @@
  * ever handing out a raw, writable `db` handle outside of `mutate()`'s `apply(tx)`.
  */
 import { join } from "node:path";
-import type { AgentId, Approval, Artifact, ArtifactId, Run, Task, Team, TeamId, Thread, ThreadAnchorType, Workstream } from "@foundry/core";
+import type { AgentId, Approval, Artifact, ArtifactId, Run, Task, Team, TeamId, Thread, ThreadAnchorType, Workstream, WorkstreamId } from "@foundry/core";
 import { openDb, type Db } from "./db/connection.js";
 import { createEventBus } from "./events/bus.js";
 import { createMutate } from "./mutate.js";
@@ -40,6 +40,7 @@ import {
   type CreateWorkstreamInput,
   type TransitionWorkstreamStateArgs,
 } from "./mutations/workstreams.js";
+import { deleteWorkstream, deleteAgent } from "./mutations/deletes.js";
 import {
   createRun,
   transitionRunState,
@@ -90,6 +91,8 @@ export interface StoreCommands {
   deleteTeam(id: TeamId): void;
   createWorkstream(input: CreateWorkstreamInput): Workstream;
   transitionWorkstreamState(args: TransitionWorkstreamStateArgs): void;
+  deleteWorkstream(id: WorkstreamId): void;
+  deleteAgent(id: AgentId): void;
   createRun(input: CreateRunInput): Run;
   transitionRunState(args: TransitionRunStateArgs): void;
   setRunTitle(args: SetRunTitleArgs): void;
@@ -156,6 +159,8 @@ export function createStore(config: StoreConfig): Store {
       deleteTeam: (id) => deleteTeam(db, mutate, id),
       createWorkstream: (input) => createWorkstream(mutate, input),
       transitionWorkstreamState: (args) => transitionWorkstreamState(db, mutate, args),
+      deleteWorkstream: (id) => deleteWorkstream(db, mutate, id),
+      deleteAgent: (id) => deleteAgent(db, mutate, id),
       createRun: (input) => createRun(mutate, input),
       transitionRunState: (args) => transitionRunState(db, mutate, args),
       setRunTitle: (args) => setRunTitle(mutate, args),

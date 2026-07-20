@@ -16,6 +16,7 @@ import {
   type AgentId,
   type WorkstreamId,
   type RunId,
+  terminalStates,
 } from "@foundry/core";
 import { InvalidTransitionError } from "@foundry/store";
 
@@ -198,6 +199,27 @@ export function registerWorkstreamRoutes(app: FastifyInstance, ctx: RouteContext
       return reply.status(200).send(updated);
     }
   );
+
+  // DELETE /api/workstreams/:id — hard delete (housekeeping). Cancels any live run
+  // first (kills the process, releases the worktree), then purges the workstream and
+  // everything it owns: runs, events, artifacts, thread/messages. Irreversible.
+  app.delete<{ Params: { id: string } }>("/api/workstreams/:id", async (request, reply) => {
+    const workstreamId = request.params.id as WorkstreamId;
+    const workstream = ctx.store.workstreams.get(workstreamId);
+    if (!workstream) {
+      throw new ProblemError(404, "Workstream not found", `Workstream ${workstreamId} does not exist`);
+    }
+
+    // Kill any non-terminal run so we're not deleting rows out from under a live process.
+    for (const run of ctx.store.runs.list({ workstream_id: workstreamId })) {
+      if (!terminalStates("run").includes(run.state)) {
+        await ctx.runtime.cancelRun(run.id, "workstream deleted").catch(() => {});
+      }
+    }
+    ctx.runtime.releaseWorkspace(workstreamId);
+    ctx.store.commands.deleteWorkstream(workstreamId);
+    return reply.status(204).send();
+  });
 
   // POST /api/runs/:id/cancel — cancel a run
   app.post<{ Params: { id: string }; Body: unknown }>(
