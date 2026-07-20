@@ -60,13 +60,13 @@ function FilterRow({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="w-16 flex-shrink-0 text-[11px] text-gray-500">{label}</span>
+      <span className="w-20 flex-shrink-0 text-[11px] text-gray-500">{label}</span>
       <select aria-label={`${label} filter`} value={op} onChange={(e) => onOp(e.target.value as DateOp)} className={cx(FILTER_FIELD, "cursor-pointer")}>
         <option value="on">on</option>
         <option value="before">before</option>
         <option value="after">after</option>
       </select>
-      <input aria-label={`${label} date`} type="date" value={date} onChange={(e) => onDate(e.target.value)} className={cx(FILTER_FIELD, "min-w-0 flex-1")} />
+      <input aria-label={`${label} date`} type="date" value={date} onChange={(e) => onDate(e.target.value)} className={cx(FILTER_FIELD, "w-[8rem]")} />
     </div>
   );
 }
