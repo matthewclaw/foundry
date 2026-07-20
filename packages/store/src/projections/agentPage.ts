@@ -11,6 +11,12 @@ export interface RelationshipSummary {
   /** Interaction count across tasks (as delegator/assignee) and messages (from/to) involving this actor. */
   weight: number;
   last_interaction_at: string;
+  /** Human-readable counterpart: the agent's name, or the actor's display_name (e.g. the human). */
+  counterpart_name: string;
+  /** The counterpart's kind (e.g. "agent", "human") — for a label when there's nothing to link to. */
+  counterpart_kind: string;
+  /** The counterpart agent's id when the actor is an agent, so the UI can link to its page; null otherwise. */
+  counterpart_agent_id: AgentId | null;
 }
 
 export interface AgentPage {
@@ -83,12 +89,28 @@ export function agentPage(db: Db, agentId: AgentId): AgentPage | undefined {
     if (row.created_at > existing.last) existing.last = row.created_at;
     byActor.set(row.actor_id, existing);
   }
+  // Resolve each counterpart actor to a name (and, if it's an agent, its id to link to) —
+  // a bare actor id is unreadable and unnavigable. LEFT JOIN so non-agent actors (the
+  // human) still resolve via actors.display_name with a null agent id.
+  const resolveActor = db.prepare(
+    `SELECT ac.kind, ac.display_name, ag.id AS agent_id, ag.name AS agent_name
+       FROM actors ac LEFT JOIN agents ag ON ag.actor_id = ac.id
+      WHERE ac.id = ?`
+  );
   const relationships: RelationshipSummary[] = [...byActor.entries()]
-    .map(([actor_id, v]) => ({
-      actor_id: actor_id as ActorId,
-      weight: v.weight,
-      last_interaction_at: v.last,
-    }))
+    .map(([actor_id, v]) => {
+      const who = resolveActor.get(actor_id) as
+        | { kind: string; display_name: string; agent_id: string | null; agent_name: string | null }
+        | undefined;
+      return {
+        actor_id: actor_id as ActorId,
+        weight: v.weight,
+        last_interaction_at: v.last,
+        counterpart_name: who?.agent_name ?? who?.display_name ?? actor_id,
+        counterpart_kind: who?.kind ?? "unknown",
+        counterpart_agent_id: (who?.agent_id ?? null) as AgentId | null,
+      };
+    })
     .sort((a, b) => b.weight - a.weight || (b.last_interaction_at > a.last_interaction_at ? 1 : -1));
 
   return {

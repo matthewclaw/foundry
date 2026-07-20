@@ -103,6 +103,29 @@ describe("E2.5 projections (fixture-based)", () => {
     expect(projections.agentPage("01ARZ3NDEKTSV4RRFFQ69G5FAV" as never)).toBeUndefined();
   });
 
+  it("agentPage relationships resolve a counterpart agent's name and id for linking", () => {
+    const { db, mutate, projections } = harness();
+    const lead = createAgent(mutate, { name: "Lead", role: "Lead", team_id: null, engine_id: "fake", memory_ref: "m1", charter_body_md: "#" });
+    transitionAgentState(db, mutate, { id: lead.agentId, to: "active", actorId: null });
+    const wynn = createAgent(mutate, { name: "Wynn", role: "Backend", team_id: null, engine_id: "fake", memory_ref: "m2", charter_body_md: "#" });
+    transitionAgentState(db, mutate, { id: wynn.agentId, to: "active", actorId: null });
+    createTask(db, mutate, {
+      parent_task_id: null,
+      delegator_actor_id: lead.actorId,
+      assignee_agent_id: wynn.agentId,
+      spec_md: "x",
+      acceptance_criteria_md: "ac",
+      budget: ZERO_BUDGET,
+    });
+
+    // From Lead's page, the counterpart is Wynn — a real agent, so it resolves to a name
+    // and a linkable agent id rather than a bare actor id.
+    const rel = projections.agentPage(lead.agentId)!.relationships.find((r) => r.counterpart_agent_id === wynn.agentId);
+    expect(rel).toBeDefined();
+    expect(rel!.counterpart_name).toBe("Wynn");
+    expect(rel!.counterpart_kind).toBe("agent");
+  });
+
   it("workstreamTimeline: renders live deltas, then falls back to the transcript file post-compaction (E2.6)", () => {
     const { db, mutate, feed, projections } = harness();
     const { agentId } = createAgent(mutate, {

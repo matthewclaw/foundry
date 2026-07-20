@@ -15,7 +15,7 @@ function WorkstreamPlaceholder() {
 }
 
 vi.mock("../api/client.js", () => ({
-  apiClient: { getAgent: vi.fn(), patchAgent: vi.fn(), createWorkstream: vi.fn(), deleteAgent: vi.fn(), deleteWorkstream: vi.fn() },
+  apiClient: { getAgent: vi.fn(), patchAgent: vi.fn(), createWorkstream: vi.fn(), deleteAgent: vi.fn(), deleteWorkstream: vi.fn(), cancelTask: vi.fn() },
 }));
 import { apiClient } from "../api/client.js";
 
@@ -35,7 +35,16 @@ const fixture: AgentPageDto = {
     { id: "ws2", title: "Bug #482", state: "waiting" },
   ],
   openTasks: [{ id: "t1", spec_md: "Fix the login timeout", state: "in_progress" }],
-  relationships: [{ actor_id: "actor-99", weight: 4, last_interaction_at: "2026-07-01T00:00:00Z" }],
+  relationships: [
+    {
+      actor_id: "actor-99",
+      weight: 4,
+      last_interaction_at: "2026-07-01T00:00:00Z",
+      counterpart_name: "Wynn",
+      counterpart_kind: "agent",
+      counterpart_agent_id: "ag2",
+    },
+  ],
 };
 
 function renderPage() {
@@ -68,7 +77,9 @@ describe("AgentPage", () => {
     expect(screen.getByText("v3")).toBeTruthy();
     expect(screen.getByText(/Keep the backend healthy/)).toBeTruthy();
     expect(screen.getByText(/Fix the login timeout/)).toBeTruthy();
-    expect(screen.getByText(/actor-99/)).toBeTruthy();
+    // relationship resolves to the counterpart's name and links to its agent page
+    const relLink = screen.getByText("Wynn");
+    expect(relLink.getAttribute("href")).toBe("/agents/ag2");
 
     const wsLink = screen.getByText("Authentication Refactor");
     expect(wsLink.getAttribute("href")).toBe("/workstreams/ws1");
@@ -171,6 +182,18 @@ describe("AgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete agent" }));
     await waitFor(() => expect(apiClient.deleteAgent).toHaveBeenCalledWith("ag1"));
+
+    confirmSpy.mockRestore();
+  });
+
+  it("cancels a stuck open task after confirming", async () => {
+    vi.mocked(apiClient.cancelTask).mockResolvedValue({ ok: true });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderPage();
+    await screen.findByText(/Fix the login timeout/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel task" }));
+    await waitFor(() => expect(apiClient.cancelTask).toHaveBeenCalledWith("t1"));
 
     confirmSpy.mockRestore();
   });

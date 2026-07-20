@@ -62,7 +62,14 @@ export interface AgentPageDto {
   status: AgentStatus;
   workstreams: { id: string; title: string; state: string }[];
   openTasks: { id: string; spec_md: string; state: string }[];
-  relationships: { actor_id: string; weight: number; last_interaction_at: string }[];
+  relationships: {
+    actor_id: string;
+    weight: number;
+    last_interaction_at: string;
+    counterpart_name: string;
+    counterpart_kind: string;
+    counterpart_agent_id: string | null;
+  }[];
 }
 
 /**

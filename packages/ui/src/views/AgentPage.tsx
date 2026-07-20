@@ -299,10 +299,7 @@ export default function AgentPage() {
         ) : (
           <ul className="divide-y divide-gray-800/70">
             {data.openTasks.map((t) => (
-              <li key={t.id} className="flex items-center gap-2 py-2 text-sm text-gray-200">
-                <span className="min-w-0 flex-1 truncate">{t.spec_md.slice(0, 100)}</span>
-                <span className="ml-auto flex-shrink-0 text-xs text-gray-500">{t.state}</span>
-              </li>
+              <TaskRow key={t.id} agentId={data.agent.id} task={t} />
             ))}
           </ul>
         )}
@@ -313,18 +310,67 @@ export default function AgentPage() {
           <p className="text-sm text-gray-500">No interactions yet.</p>
         ) : (
           <ul className="space-y-1.5 text-sm">
-            {data.relationships.map((r) => (
-              <li key={r.actor_id} className="flex items-center gap-2">
-                <Icon name="users" size={13} className="text-gray-600" />
-                <span className="font-mono text-xs text-gray-300">{r.actor_id}</span>
-                <span className="ml-auto text-xs text-gray-500">
-                  {r.weight} interaction{r.weight === 1 ? "" : "s"} · last {new Date(r.last_interaction_at).toLocaleDateString()}
+            {data.relationships.map((r) => {
+              const meta = (
+                <span className="ml-auto flex-shrink-0 text-xs text-gray-500">
+                  {r.weight} interaction{r.weight === 1 ? "" : "s"} · last{" "}
+                  {new Date(r.last_interaction_at).toLocaleDateString()}
                 </span>
-              </li>
-            ))}
+              );
+              return (
+                <li key={r.actor_id} className="flex items-center gap-2">
+                  <Icon name="users" size={13} className="text-gray-600" />
+                  {r.counterpart_agent_id ? (
+                    <Link
+                      to={`/agents/${r.counterpart_agent_id}`}
+                      className="truncate text-gray-200 hover:text-green-300 hover:underline"
+                    >
+                      {r.counterpart_name}
+                    </Link>
+                  ) : (
+                    <span className="truncate text-gray-300">{r.counterpart_name}</span>
+                  )}
+                  <span className="flex-shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500">
+                    {r.counterpart_kind}
+                  </span>
+                  {meta}
+                </li>
+              );
+            })}
           </ul>
         )}
       </Section>
     </div>
+  );
+}
+
+function TaskRow({ agentId, task }: { agentId: string; task: { id: string; spec_md: string; state: string } }) {
+  const queryClient = useQueryClient();
+  const cancel = useMutation({
+    mutationFn: () => apiClient.cancelTask(task.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["org"] });
+    },
+  });
+  const handleCancel = () => {
+    if (window.confirm(`Cancel this task? It (and any sub-tasks it spawned) will be cancelled and their workstreams closed. This cannot be undone.`)) {
+      cancel.mutate();
+    }
+  };
+  return (
+    <li className="group flex items-center gap-2 py-2 text-sm text-gray-200">
+      <span className="min-w-0 flex-1 truncate">{task.spec_md.slice(0, 100)}</span>
+      <span className="flex-shrink-0 text-xs text-gray-500">{task.state}</span>
+      <button
+        type="button"
+        aria-label="Cancel task"
+        className="flex-shrink-0 rounded border border-transparent px-2 py-0.5 text-xs text-gray-600 opacity-0 transition hover:border-red-500/50 hover:bg-red-950/40 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"
+        disabled={cancel.isPending}
+        onClick={handleCancel}
+      >
+        {cancel.isPending ? "Cancelling…" : "Cancel"}
+      </button>
+    </li>
   );
 }

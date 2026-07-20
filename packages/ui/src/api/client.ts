@@ -75,6 +75,8 @@ export const apiClient = {
   deleteTeam: (id: string) => request<void>(`/teams/${id}`, { method: "DELETE" }),
   deleteAgent: (id: string) => request<void>(`/agents/${id}`, { method: "DELETE" }),
   deleteWorkstream: (id: string) => request<void>(`/workstreams/${id}`, { method: "DELETE" }),
+  cancelTask: (id: string, reason?: string) =>
+    request<{ ok: true }>(`/tasks/${id}/cancel`, json("POST", { reason })),
   createWorkstream: (body: CreateWorkstreamBody) =>
     request<{ id: string }>("/workstreams", json("POST", { ...body, budget: {} })),
   getClaudeSessions: () => request<{ groups: ClaudeSessionGroupDto[] }>("/claude-sessions"),
