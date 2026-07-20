@@ -90,6 +90,19 @@ describe("buildSessionTree", () => {
     expect(repos).toBeTruthy();
     expect(repos!.folders.map((f) => f.name).sort()).toEqual(["ade", "other"]);
   });
+
+  it("groups paths that differ only in case under one node (Windows is case-insensitive)", () => {
+    const tree = buildSessionTree(
+      [
+        { ...groups[0]!, projectDir: "a", repoPath: "c:\\repos\\ade", sessions: [] },
+        { ...groups[0]!, projectDir: "b", repoPath: "C:\\repos\\other", sessions: [] },
+      ],
+      "\\"
+    );
+    // One root, not two — `c:` and `C:` are the same drive.
+    expect(tree).toHaveLength(1);
+    expect(tree[0]!.folders.map((f) => f.name).sort()).toEqual(["ade", "other"]);
+  });
 });
 
 describe("ClaudeSessionsView", () => {
@@ -150,6 +163,25 @@ describe("ClaudeSessionsView", () => {
     await screen.findByText("Fix the bug");
     fireEvent.click(screen.getByText("C:\\repos\\ade"));
     expect(screen.queryByText("Fix the bug")).toBeNull();
+  });
+
+  it("closes the transcript panel, then reopens it when a chat is selected", async () => {
+    vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups });
+    vi.mocked(apiClient.getClaudeSessionDetail).mockResolvedValue(detail);
+    renderView();
+
+    fireEvent.click(await screen.findByText("Fix the bug"));
+    await screen.findByText("Done, ", { exact: false });
+
+    // Close → the transcript pane unmounts, the explorer stays.
+    fireEvent.click(screen.getByLabelText("Close panel"));
+    expect(screen.queryByText("Done, ", { exact: false })).toBeNull();
+    expect(screen.queryByLabelText("Close panel")).toBeNull();
+    expect(screen.getByText("C:\\repos\\ade")).toBeTruthy();
+
+    // Selecting another chat brings the panel back.
+    fireEvent.click(screen.getByText("Add a test"));
+    expect(screen.getByLabelText("Close panel")).toBeTruthy();
   });
 
   it("renders an empty state when there are no sessions", async () => {

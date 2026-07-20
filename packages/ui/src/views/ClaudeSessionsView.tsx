@@ -33,7 +33,9 @@ export function buildSessionTree(groups: ClaudeSessionGroupDto[], sep = "\\"): F
     let acc = "";
     for (const segment of segments) {
       acc = acc ? acc + sep + segment : segment;
-      let child = node.folders.find((f) => f.name === segment);
+      // Windows paths are case-insensitive, so `C:\repos` and `c:\repos` are the same
+      // folder — match on lowercase but keep the first-seen casing for display.
+      let child = node.folders.find((f) => f.name.toLowerCase() === segment.toLowerCase());
       if (!child) {
         child = { name: segment, path: acc, folders: [] };
         node.folders.push(child);
@@ -181,7 +183,7 @@ function formatTime(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
-function TranscriptPane({ selection }: { selection: Selection | null }) {
+function TranscriptPane({ selection, onClose }: { selection: Selection | null; onClose: () => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { data, isLoading, error } = useQuery({
     queryKey: ["claude-session", selection?.projectDir, selection?.session.id],
@@ -194,30 +196,46 @@ function TranscriptPane({ selection }: { selection: Selection | null }) {
     if (data && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [data]);
 
-  if (!selection) {
-    return (
-      <EmptyState
-        icon={<Icon name="terminal" size={28} />}
-        title="Select a chat"
-        hint="Pick a conversation from the explorer to read its transcript."
-      />
-    );
-  }
-
-  const { session } = selection;
+  const session = selection?.session;
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-shrink-0 border-b border-gray-800 px-4 py-3">
-        <div className="truncate font-mono text-xs text-gray-400" title={session.filePath}>{session.filePath}</div>
-        <div className="mt-1 text-xs text-gray-500">
-          {session.startedAtMs !== null && <>started {formatTime(session.startedAtMs)} · </>}
-          last active {formatTime(session.mtimeMs)}
+      <div className="flex flex-shrink-0 items-start gap-2 border-b border-gray-800 px-4 py-2.5">
+        <div className="min-w-0 flex-1">
+          {session ? (
+            <>
+              <div className="truncate font-mono text-xs text-gray-400" title={session.filePath}>{session.filePath}</div>
+              <div className="mt-0.5 text-xs text-gray-500">
+                {session.startedAtMs !== null && <>started {formatTime(session.startedAtMs)} · </>}
+                last active {formatTime(session.mtimeMs)}
+              </div>
+            </>
+          ) : (
+            <span className="text-sm text-gray-500">Transcript</span>
+          )}
         </div>
+        <button
+          type="button"
+          aria-label="Close panel"
+          title="Close panel — give the explorer full width"
+          onClick={onClose}
+          className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
+        >
+          <Icon name="x" size={15} />
+        </button>
       </div>
-      <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto p-4">
-        {isLoading && <p className="text-xs text-gray-500">Loading transcript…</p>}
-        {error && <p className="text-xs text-red-400">{error instanceof Error ? error.message : String(error)}</p>}
-        {data?.turns.map((turn, i) => (
+      {!selection ? (
+        <div className="flex-1">
+          <EmptyState
+            icon={<Icon name="terminal" size={28} />}
+            title="Select a chat"
+            hint="Pick a conversation from the explorer to read its transcript."
+          />
+        </div>
+      ) : (
+        <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto p-4">
+          {isLoading && <p className="text-xs text-gray-500">Loading transcript…</p>}
+          {error && <p className="text-xs text-red-400">{error instanceof Error ? error.message : String(error)}</p>}
+          {data?.turns.map((turn, i) => (
           <div
             key={i}
             className={cx(
@@ -230,24 +248,27 @@ function TranscriptPane({ selection }: { selection: Selection | null }) {
               <Markdown>{turn.text}</Markdown>
             </div>
           </div>
-        ))}
-        {data?.turns.length === 0 && <p className="text-xs text-gray-500">(no readable turns)</p>}
-      </div>
+          ))}
+          {data?.turns.length === 0 && <p className="text-xs text-gray-500">(no readable turns)</p>}
+        </div>
+      )}
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------- view */
 
-/** All folder paths in the forest — used to seed every folder expanded by default. */
-function allFolderPaths(nodes: FolderNode[]): string[] {
-  return nodes.flatMap((n) => [n.path, ...allFolderPaths(n.folders)]);
-}
-
 export default function ClaudeSessionsView() {
   const { data, isLoading, error } = useQuery({ queryKey: ["claude-sessions"], queryFn: apiClient.getClaudeSessions });
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  // Selecting a chat always reveals the transcript, even if the panel was closed.
+  const select = (sel: Selection) => {
+    setSelection(sel);
+    setPanelOpen(true);
+  };
 
   const sep = useMemo(
     () => (data?.groups.some((g) => g.repoPath.includes("\\")) ? "\\" : "/"),
@@ -284,14 +305,21 @@ export default function ClaudeSessionsView() {
         />
       ) : (
         <div className="flex min-h-0 flex-1 gap-4">
-          <div className="w-80 flex-shrink-0 overflow-y-auto rounded-lg border border-gray-800 bg-gray-900/50 py-2">
+          <div
+            className={cx(
+              "overflow-y-auto rounded-lg border border-gray-800 bg-gray-900/50 py-2",
+              panelOpen ? "w-80 flex-shrink-0" : "flex-1"
+            )}
+          >
             {tree.map((node) => (
-              <FolderRow key={node.path} node={node} depth={0} collapsed={collapsed} toggle={toggle} selection={selection} onSelect={setSelection} />
+              <FolderRow key={node.path} node={node} depth={0} collapsed={collapsed} toggle={toggle} selection={selection} onSelect={select} />
             ))}
           </div>
-          <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50">
-            <TranscriptPane selection={selection} />
-          </div>
+          {panelOpen && (
+            <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50">
+              <TranscriptPane selection={selection} onClose={() => setPanelOpen(false)} />
+            </div>
+          )}
         </div>
       )}
     </div>
