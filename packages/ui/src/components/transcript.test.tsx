@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { parseTranscript, TranscriptBody } from "./transcript.js";
+import { parseTranscript, TranscriptBody, TranscriptTurn } from "./transcript.js";
 
 describe("parseTranscript", () => {
   it("parses a slash-command invocation into a command segment", () => {
@@ -73,5 +73,30 @@ describe("TranscriptBody", () => {
     render(<TranscriptBody text="<command-name>/compact</command-name> <command-args></command-args>" />);
     expect(screen.getByText("/compact")).toBeTruthy();
     expect(screen.queryByText(/command-name/)).toBeNull();
+  });
+});
+
+describe("TranscriptTurn attribution", () => {
+  it("shows a task-notification as system even when the raw role is user", () => {
+    render(<TranscriptTurn role="user" text="<task-notification><status>completed</status><summary>Did a thing</summary><result>done</result></task-notification>" />);
+    expect(screen.getByText("system")).toBeTruthy();
+    expect(screen.queryByText("user")).toBeNull();
+  });
+
+  it("shows command output as system", () => {
+    render(<TranscriptTurn role="user" text="<local-command-stdout>Compacted</local-command-stdout>" />);
+    expect(screen.getByText("system")).toBeTruthy();
+    expect(screen.queryByText("user")).toBeNull();
+  });
+
+  it("keeps an ordinary text turn as its real role", () => {
+    render(<TranscriptTurn role="user" text="Fix the bug please" />);
+    expect(screen.getByText("user")).toBeTruthy();
+  });
+
+  it("keeps a slash command as the user — they typed it", () => {
+    render(<TranscriptTurn role="user" text="<command-name>/compact</command-name>" />);
+    expect(screen.getByText("user")).toBeTruthy();
+    expect(screen.getByText("/compact")).toBeTruthy();
   });
 });

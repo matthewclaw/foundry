@@ -88,9 +88,43 @@ function Prose({ text }: { text: string }) {
   );
 }
 
+/** True for content the framework/engine injected (not something the human typed). */
+function isSystemGenerated(segments: Segment[]): boolean {
+  return segments.some((s) => s.kind === "task" || s.kind === "stdout");
+}
+
+type TurnRole = "user" | "assistant" | "system";
+const ROLE_STYLE: Record<TurnRole, string> = {
+  user: "border border-green-800/40 bg-green-950/20 text-gray-100",
+  assistant: "border border-gray-800 bg-gray-950/40 text-gray-200",
+  // System-generated content carries its own framed blocks — no bubble around it.
+  system: "text-gray-300",
+};
+
+/**
+ * One transcript turn, attributed by its *content*: a task-notification or command
+ * output reads as "system" even though the raw session logs it under the user role, so
+ * you don't see "USER — completed: agent …". Text and slash commands (things the human
+ * actually did) keep the real role.
+ */
+export function TranscriptTurn({ role, text }: { role: "user" | "assistant"; text: string }) {
+  const segments = parseTranscript(text);
+  if (segments.length === 0) return null;
+  const effectiveRole: TurnRole = isSystemGenerated(segments) ? "system" : role;
+  return (
+    <div className={cx("rounded-md px-3 py-2 text-sm", ROLE_STYLE[effectiveRole])}>
+      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">{effectiveRole}</div>
+      <SegmentList segments={segments} />
+    </div>
+  );
+}
+
 /** Renders one message's parsed segments as a legible stack. */
 export function TranscriptBody({ text }: { text: string }) {
-  const segments = parseTranscript(text);
+  return <SegmentList segments={parseTranscript(text)} />;
+}
+
+function SegmentList({ segments }: { segments: Segment[] }) {
   if (segments.length === 0) return null;
 
   return (

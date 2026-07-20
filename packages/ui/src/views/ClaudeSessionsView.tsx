@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiClient } from "../api/client.js";
 import type { ClaudeSessionGroupDto, ClaudeSessionSummaryDto } from "../api/types.js";
 import { EmptyState, ErrorState, Icon, Loading, PageHeader, cx } from "../components/ui.js";
-import { TranscriptBody } from "../components/transcript.js";
+import { TranscriptTurn } from "../components/transcript.js";
 
 /* ---------------------------------------------------------------- tree building */
 
@@ -236,16 +236,7 @@ function TranscriptPane({ selection, onClose }: { selection: Selection | null; o
           {isLoading && <p className="text-xs text-gray-500">Loading transcript…</p>}
           {error && <p className="text-xs text-red-400">{error instanceof Error ? error.message : String(error)}</p>}
           {data?.turns.map((turn, i) => (
-          <div
-            key={i}
-            className={cx(
-              "rounded-md border px-3 py-2 text-sm",
-              turn.role === "user" ? "border-green-800/40 bg-green-950/20 text-gray-100" : "border-gray-800 bg-gray-950/40 text-gray-200"
-            )}
-          >
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">{turn.role}</div>
-            <TranscriptBody text={turn.text} />
-          </div>
+          <TranscriptTurn key={i} role={turn.role} text={turn.text} />
           ))}
           {data?.turns.length === 0 && <p className="text-xs text-gray-500">(no readable turns)</p>}
         </div>
