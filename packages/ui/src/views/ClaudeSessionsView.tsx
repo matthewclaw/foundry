@@ -7,10 +7,10 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import Markdown from "react-markdown";
 import { apiClient } from "../api/client.js";
 import type { ClaudeSessionGroupDto, ClaudeSessionSummaryDto } from "../api/types.js";
 import { EmptyState, ErrorState, Icon, Loading, PageHeader, cx } from "../components/ui.js";
+import { TranscriptBody } from "../components/transcript.js";
 
 /* ---------------------------------------------------------------- tree building */
 
@@ -244,9 +244,7 @@ function TranscriptPane({ selection, onClose }: { selection: Selection | null; o
             )}
           >
             <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-500">{turn.role}</div>
-            <div className="prose prose-sm prose-invert max-w-none">
-              <Markdown>{turn.text}</Markdown>
-            </div>
+            <TranscriptBody text={turn.text} />
           </div>
           ))}
           {data?.turns.length === 0 && <p className="text-xs text-gray-500">(no readable turns)</p>}
