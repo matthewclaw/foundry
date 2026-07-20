@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ClaudeSessionDetailDto, ClaudeSessionGroupDto } from "../api/types.js";
-import ClaudeSessionsView from "./ClaudeSessionsView.js";
+import ClaudeSessionsView, { buildSessionTree } from "./ClaudeSessionsView.js";
 
 vi.mock("../api/client.js", () => ({
   apiClient: {
@@ -65,69 +65,96 @@ function renderView() {
   );
 }
 
+describe("buildSessionTree", () => {
+  it("compacts a single-child folder chain into one combined segment", () => {
+    const tree = buildSessionTree(groups, "\\");
+    // C: -> repos -> ade all have a single child (until ade's chats) → one node.
+    const ade = tree.find((n) => n.name === "C:\\repos\\ade");
+    expect(ade).toBeTruthy();
+    expect(ade!.group?.projectDir).toBe("c--repos-ade");
+    expect(ade!.folders).toHaveLength(0);
+    // the single-segment unresolved path stays as-is.
+    const unknown = tree.find((n) => n.name === "c--repos-unknown");
+    expect(unknown?.group?.repoPathResolved).toBe(false);
+  });
+
+  it("stops compacting at a fork where a folder has multiple children", () => {
+    const tree = buildSessionTree(
+      [
+        { ...groups[0]!, projectDir: "a", repoPath: "C:\\repos\\ade", sessions: [] },
+        { ...groups[0]!, projectDir: "b", repoPath: "C:\\repos\\other", sessions: [] },
+      ],
+      "\\"
+    );
+    const repos = tree.find((n) => n.name === "C:\\repos");
+    expect(repos).toBeTruthy();
+    expect(repos!.folders.map((f) => f.name).sort()).toEqual(["ade", "other"]);
+  });
+});
+
 describe("ClaudeSessionsView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("renders groups collapsed, with repo path, session count, and unresolved-path hint", async () => {
+  it("renders the folder tree with compacted paths, its chats, and the unresolved hint", async () => {
     vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups });
-
     renderView();
 
     await screen.findByText("C:\\repos\\ade");
-    expect(screen.getByText("2 chats")).toBeTruthy();
     expect(screen.getByText("c--repos-unknown")).toBeTruthy();
     expect(screen.getByText("path not found on disk")).toBeTruthy();
-    // Sessions aren't shown until the group is expanded.
-    expect(screen.queryByText("Fix the bug")).toBeNull();
+    // Folders default to expanded, so chats show in the explorer immediately.
+    expect(screen.getByText("Fix the bug")).toBeTruthy();
+    expect(screen.getByText("Add a test")).toBeTruthy();
+    // Nothing selected yet — the transcript pane prompts, and no detail is fetched.
+    expect(screen.getByText("Select a chat")).toBeTruthy();
+    expect(apiClient.getClaudeSessionDetail).not.toHaveBeenCalled();
   });
 
-  it("expanding a group shows an id chip (first 8 chars, full file path as tooltip) and both dates; expanding a row lazily fetches its transcript", async () => {
+  it("selecting a chat loads its transcript (markdown rendered) and shows its dates + id chip", async () => {
     vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups });
     vi.mocked(apiClient.getClaudeSessionDetail).mockResolvedValue(detail);
-
     renderView();
 
-    fireEvent.click(await screen.findByText("C:\\repos\\ade"));
-    await screen.findByText("Fix the bug");
-    expect(apiClient.getClaudeSessionDetail).not.toHaveBeenCalled();
-
-    const chip = screen.getByText(SESSION_1.slice(0, 8));
+    const chip = await screen.findByText(SESSION_1.slice(0, 8));
     expect(chip.getAttribute("title")).toBe(SESSION_1_PATH);
-    // Session with a startedAtMs shows both dates; the one without only shows "last active".
-    expect(screen.getByText(/started .* · last active/)).toBeTruthy();
-    expect(screen.getByText(/^last active/)).toBeTruthy();
 
     fireEvent.click(screen.getByText("Fix the bug"));
     await screen.findByText("Done, ", { exact: false });
     expect(apiClient.getClaudeSessionDetail).toHaveBeenCalledWith("c--repos-ade", SESSION_1);
-    // Markdown renders — bold text becomes a <strong>, not literal asterisks.
+    // Markdown renders — bold becomes <strong>, not literal asterisks.
     expect(screen.getByText("fixed").tagName).toBe("STRONG");
+    // Dates live in the transcript header.
+    expect(screen.getByText(/started .* · last active/)).toBeTruthy();
   });
 
-  it("clicking the id chip reveals the file without toggling the row's expand state", async () => {
+  it("clicking the id chip reveals the file without selecting the chat", async () => {
     vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups });
     vi.mocked(apiClient.revealClaudeSession).mockResolvedValue({ ok: true });
-
     renderView();
 
-    fireEvent.click(await screen.findByText("C:\\repos\\ade"));
     const chip = await screen.findByText(SESSION_1.slice(0, 8));
-
     fireEvent.click(chip);
 
     await waitFor(() => expect(apiClient.revealClaudeSession).toHaveBeenCalledWith("c--repos-ade", SESSION_1));
-    // Clicking the chip must not also expand the row (stopPropagation).
+    // stopPropagation: the row's select handler must not fire, so no transcript loads.
     expect(apiClient.getClaudeSessionDetail).not.toHaveBeenCalled();
     expect(screen.queryByText("Done, ", { exact: false })).toBeNull();
   });
 
-  it("renders an empty state when there are no sessions", async () => {
-    vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups: [] });
-
+  it("collapsing a folder hides its chats", async () => {
+    vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups });
     renderView();
 
+    await screen.findByText("Fix the bug");
+    fireEvent.click(screen.getByText("C:\\repos\\ade"));
+    expect(screen.queryByText("Fix the bug")).toBeNull();
+  });
+
+  it("renders an empty state when there are no sessions", async () => {
+    vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups: [] });
+    renderView();
     await screen.findByText("No sessions found.");
   });
 
@@ -139,9 +166,7 @@ describe("ClaudeSessionsView", () => {
 
   it("renders an error message on API failure", async () => {
     vi.mocked(apiClient.getClaudeSessions).mockRejectedValue(new Error("Network error"));
-
     renderView();
-
     await screen.findByText("Something went wrong");
     await screen.findByText("Network error");
   });
