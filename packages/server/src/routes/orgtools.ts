@@ -104,9 +104,13 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     const parent = callerParentTask(ctx, cred);
     const parentTask = parent ? { id: parent.id, depth: parent.depth, budget: parent.budget } : null;
 
+    // Routing prefers an agent in the delegator's own team (keep work in-team when the
+    // routing spec doesn't pin a team). Must match what checkDelegation validates below.
+    const delegatorTeamId = ctx.store.agents.get(cred.agentId as never)?.team_id ?? null;
+
     // E8.5 — pre-check routing early if present, so we can fire an escalation before returning
     if (routing && !assignee_agent_id) {
-      const routeResult = resolveRouting(ctx.store, routing);
+      const routeResult = resolveRouting(ctx.store, routing, delegatorTeamId);
       if ("code" in routeResult) {
         // Routing failure surfaces to human inbox (F11)
         const human = ctx.store.commands.getOrCreateHumanActor();
@@ -161,7 +165,7 @@ export const TOOL_HANDLERS: Partial<Record<OrgToolName, ToolHandler>> = {
     if (assignee_agent_id) {
       resolvedAssigneeId = assignee_agent_id;
     } else if (routing) {
-      const routeResult = resolveRouting(ctx.store, routing);
+      const routeResult = resolveRouting(ctx.store, routing, delegatorTeamId);
       if ("code" in routeResult) {
         return { ok: false, error: routeResult };
       }

@@ -197,6 +197,42 @@ describe("delegate_task — E6.2/E6.3: sub-delegation depth + parent wiring", ()
     expect(child?.parent_task_id).toBe(parentTask.id);
     expect(child?.depth).toBe(parentTask.depth + 1);
   });
+
+  it("routes a role-only delegation to an agent in the delegator's own team", async () => {
+    const teamA = server.store.commands.createTeam({ name: "A", description: "", default_policy: {} });
+    const teamB = server.store.commands.createTeam({ name: "B", description: "", default_policy: {} });
+    const activate = (id: string) => server.store.commands.transitionAgentState({ id: id as never, to: "active", actorId: null });
+    const mk = (name: string, role: string, teamId: string) => {
+      const { agentId } = server.store.commands.createAgent({
+        name,
+        role,
+        team_id: teamId as never,
+        engine_id: "fake",
+        engine_config: { scenarioName: "happy-path" },
+        memory_ref: "agents/{agent_id}/memory",
+        charter_body_md: `# ${name}`,
+      });
+      activate(agentId);
+      return agentId;
+    };
+    const delegatorId = mk("Lead", "Tech Lead", teamA.id);
+    const backendA = mk("BeA", "Backend", teamA.id); // same team as the delegator
+    mk("BeB", "Backend", teamB.id); // equally eligible, different team
+
+    const delegator = server.store.agents.get(delegatorId as never)!;
+    const token = server.tokens.mint({ runId: "run_team" as never, agentId: delegator.id, actorId: delegator.actor_id });
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/org-tools/delegate_task",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: "t", spec_md: "do it", acceptance_criteria_md: "AC", routing: { role: "Backend" } },
+    });
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(true);
+    expect(server.store.tasks.get(body.data.task_id)?.assignee_agent_id).toBe(backendA);
+    await idle();
+  });
 });
 
 describe("request_approval — E6.2/E6.4: payload carries workstream_id so grant re-triggers the run", () => {

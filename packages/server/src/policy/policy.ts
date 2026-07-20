@@ -51,13 +51,25 @@ export function resolvePolicy(store: Store, agent: Agent): ResolvedPolicy {
 
 /**
  * Deterministic routing (02): filter ACTIVE agents by team_id and/or role exact-match,
- * pick fewest open workstreams, tie-break lowest agent id. Returns the resolved agent
- * or a `routing_failed` PolicyError (F11).
+ * then pick, in order: an agent in the delegator's own team (keep work within the team
+ * when the routing spec didn't pin one), then fewest open workstreams, then lowest agent
+ * id as the final deterministic tie-break. Returns the resolved agent or a
+ * `routing_failed` PolicyError (F11). `delegatorTeamId` is the team of whoever is
+ * delegating; omit it (or pass null, e.g. a human/team-less delegator) to skip affinity.
  */
-export function resolveRouting(store: Store, routing: RoutingSpec): Agent | PolicyError {
+export function resolveRouting(
+  store: Store,
+  routing: RoutingSpec,
+  delegatorTeamId?: Agent["team_id"]
+): Agent | PolicyError {
   const openWorkstreams = (agentId: Agent["id"]) =>
     store.workstreams.list({ agent_id: agentId }).filter((ws) => ws.state !== "closed" && ws.state !== "archived")
       .length;
+
+  // 0 = in the delegator's team, 1 = not — sorts same-team first. A null delegator team
+  // never matches (an agent's team_id is only null when it's genuinely unassigned), so
+  // affinity is simply inert when there's no team to prefer.
+  const teamRank = (a: Agent) => (delegatorTeamId != null && a.team_id === delegatorTeamId ? 0 : 1);
 
   const candidates = store.agents
     .list({ state: "active" })
@@ -67,6 +79,8 @@ export function resolveRouting(store: Store, routing: RoutingSpec): Agent | Poli
         (routing.role == null || a.role === routing.role)
     )
     .sort((a, b) => {
+      const team = teamRank(a) - teamRank(b);
+      if (team !== 0) return team;
       const load = openWorkstreams(a.id) - openWorkstreams(b.id);
       return load !== 0 ? load : a.id < b.id ? -1 : 1;
     });
@@ -161,7 +175,7 @@ export function checkDelegation(args: CheckDelegationArgs): PolicyError | null {
       };
     }
   } else if (input.routing) {
-    const routed = resolveRouting(store, input.routing);
+    const routed = resolveRouting(store, input.routing, delegatorAgent?.team_id ?? null);
     if ("code" in routed) return routed;
   }
 

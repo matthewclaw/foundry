@@ -117,6 +117,19 @@ describe("resolveRouting — deterministic team/role → active agent (02)", () 
     const failed = resolveRouting(server.store, { role: "Backend" }) as PolicyError;
     expect(failed.code).toBe("routing_failed");
   });
+
+  it("prefers an agent in the delegator's team, even over a less-loaded one elsewhere", () => {
+    const teamA = server.store.commands.createTeam({ name: "A", description: "", default_policy: {} });
+    const teamB = server.store.commands.createTeam({ name: "B", description: "", default_policy: {} });
+    const inTeamA = makeAgent({ name: "InA", role: "Backend", teamId: teamA.id });
+    const inTeamB = makeAgent({ name: "InB", role: "Backend", teamId: teamB.id });
+    openWorkstream(inTeamA); // make the same-team agent the busier one
+
+    // Delegator lives in teamA: affinity wins over the load tie-break.
+    expect((resolveRouting(server.store, { role: "Backend" }, teamA.id) as Agent).id).toBe(inTeamA.id);
+    // No delegator team supplied: fall back to fewest open workstreams → the idle teamB agent.
+    expect((resolveRouting(server.store, { role: "Backend" }) as Agent).id).toBe(inTeamB.id);
+  });
 });
 
 describe("checkDelegation — table of policy error codes", () => {
