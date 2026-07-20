@@ -45,7 +45,7 @@ const filterActive = (f: SessionFilter) => f.startedDate !== "" || f.activeDate 
 const FILTER_FIELD =
   "rounded border border-gray-700 bg-gray-950/60 px-1.5 py-1 text-xs text-gray-200 focus:border-green-600 focus:outline-none disabled:opacity-40";
 
-function FilterRow({
+function FilterGroup({
   label,
   op,
   date,
@@ -60,25 +60,26 @@ function FilterRow({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="w-20 flex-shrink-0 text-[11px] text-gray-500">{label}</span>
+      <span className="text-xs text-gray-400">{label}</span>
       <select aria-label={`${label} filter`} value={op} onChange={(e) => onOp(e.target.value as DateOp)} className={cx(FILTER_FIELD, "cursor-pointer")}>
         <option value="on">on</option>
         <option value="before">before</option>
         <option value="after">after</option>
       </select>
-      <input aria-label={`${label} date`} type="date" value={date} onChange={(e) => onDate(e.target.value)} className={cx(FILTER_FIELD, "w-[8rem]")} />
+      <input aria-label={`${label} date`} type="date" value={date} onChange={(e) => onDate(e.target.value)} className={cx(FILTER_FIELD, "w-[8.5rem]")} />
     </div>
   );
 }
 
 function FilterBar({ filter, setFilter }: { filter: SessionFilter; setFilter: Dispatch<SetStateAction<SessionFilter>> }) {
   return (
-    <div className="flex-shrink-0 space-y-1.5 border-b border-gray-800 p-2.5">
-      <FilterRow label="Started" op={filter.startedOp} date={filter.startedDate} onOp={(op) => setFilter((f) => ({ ...f, startedOp: op }))} onDate={(d) => setFilter((f) => ({ ...f, startedDate: d }))} />
-      <FilterRow label="Last active" op={filter.activeOp} date={filter.activeDate} onOp={(op) => setFilter((f) => ({ ...f, activeOp: op }))} onDate={(d) => setFilter((f) => ({ ...f, activeDate: d }))} />
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <FilterGroup label="Started" op={filter.startedOp} date={filter.startedDate} onOp={(op) => setFilter((f) => ({ ...f, startedOp: op }))} onDate={(d) => setFilter((f) => ({ ...f, startedDate: d }))} />
+      <span className="h-4 w-px bg-gray-700" aria-hidden />
+      <FilterGroup label="Last active" op={filter.activeOp} date={filter.activeDate} onOp={(op) => setFilter((f) => ({ ...f, activeOp: op }))} onDate={(d) => setFilter((f) => ({ ...f, activeDate: d }))} />
       {filterActive(filter) && (
-        <button type="button" onClick={() => setFilter(EMPTY_FILTER)} className="text-[11px] text-gray-500 hover:text-green-400">
-          Clear filters
+        <button type="button" onClick={() => setFilter(EMPTY_FILTER)} className="text-xs text-gray-500 hover:text-green-400">
+          Clear
         </button>
       )}
     </div>
@@ -388,15 +389,15 @@ export default function ClaudeSessionsView() {
           hint="Claude Code sessions from anywhere on this machine will appear here once they exist."
         />
       ) : (
-        <div className="flex min-h-0 flex-1 gap-4">
-          <div
-            className={cx(
-              "flex flex-col overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50",
-              panelOpen ? "w-80 flex-shrink-0" : "flex-1"
-            )}
-          >
-            <FilterBar filter={filter} setFilter={setFilter} />
-            <div className="flex-1 overflow-y-auto py-2">
+        <>
+          <FilterBar filter={filter} setFilter={setFilter} />
+          <div className="flex min-h-0 flex-1 gap-4">
+            <div
+              className={cx(
+                "overflow-y-auto rounded-lg border border-gray-800 bg-gray-900/50 py-2",
+                panelOpen ? "w-80 flex-shrink-0" : "flex-1"
+              )}
+            >
               {tree.length === 0 ? (
                 <div className="px-3 py-4 text-xs text-gray-500">No chats match the filter.</div>
               ) : (
@@ -405,13 +406,13 @@ export default function ClaudeSessionsView() {
                 ))
               )}
             </div>
+            {panelOpen && (
+              <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50">
+                <TranscriptPane selection={selection} onClose={() => setPanelOpen(false)} />
+              </div>
+            )}
           </div>
-          {panelOpen && (
-            <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50">
-              <TranscriptPane selection={selection} onClose={() => setPanelOpen(false)} />
-            </div>
-          )}
-        </div>
+        </>
       )}
     </div>
   );

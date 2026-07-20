@@ -230,7 +230,7 @@ describe("ClaudeSessionsView", () => {
     expect(screen.queryByText("Fix the bug")).toBeNull();
     expect(screen.getByText("No chats match the filter.")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Clear filters"));
+    fireEvent.click(screen.getByText("Clear"));
     expect(screen.getByText("Fix the bug")).toBeTruthy();
   });
 
