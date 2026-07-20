@@ -273,6 +273,11 @@ function TranscriptPane({ selection, onClose }: { selection: Selection | null; o
     if (data && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [data]);
 
+  const scrollTo = (where: "top" | "bottom") => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: where === "top" ? 0 : el.scrollHeight, behavior: "smooth" });
+  };
+
   const session = selection?.session;
   return (
     <div className="flex h-full flex-col">
@@ -291,15 +296,35 @@ function TranscriptPane({ selection, onClose }: { selection: Selection | null; o
           )}
         </div>
         {session && (
-          <button
-            type="button"
-            aria-label="Reveal in file explorer"
-            title="Reveal this file in your OS file explorer"
-            onClick={() => reveal.mutate()}
-            className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
-          >
-            <Icon name="folder" size={15} />
-          </button>
+          <>
+            <button
+              type="button"
+              aria-label="Scroll to top"
+              title="Scroll to top"
+              onClick={() => scrollTo("top")}
+              className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
+            >
+              <Icon name="chevron-up" size={15} />
+            </button>
+            <button
+              type="button"
+              aria-label="Scroll to bottom"
+              title="Scroll to bottom"
+              onClick={() => scrollTo("bottom")}
+              className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
+            >
+              <Icon name="chevron-down" size={15} />
+            </button>
+            <button
+              type="button"
+              aria-label="Reveal in file explorer"
+              title="Reveal this file in your OS file explorer"
+              onClick={() => reveal.mutate()}
+              className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
+            >
+              <Icon name="folder" size={15} />
+            </button>
+          </>
         )}
         <button
           type="button"
