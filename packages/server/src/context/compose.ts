@@ -128,7 +128,13 @@ function triggerSection(store: Store, run: Run, workstream: Workstream, agent: A
       lines.push(
         "You have been assigned a task:",
         "",
-        task ? `**Spec:**\n${task.spec_md}\n\n**Acceptance criteria:**\n${task.acceptance_criteria_md}` : "(task not found)"
+        task
+          ? `**Task:** \`${task.id}\`\n\n**Spec:**\n${task.spec_md}\n\n**Acceptance criteria:**\n` +
+            `${task.acceptance_criteria_md}\n\n` +
+            "When you're done, call `deliver_task` with this task's id and a summary (that's how " +
+            "your delegator sees the result and accepts it); use `update_task` with the id to note " +
+            "progress or report a blocker. Without the id above you can't close the loop — don't guess it."
+          : "(task not found)"
       );
       break;
     }
