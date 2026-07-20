@@ -14,22 +14,22 @@ import { TranscriptTurn } from "../components/transcript.js";
 
 /* --------------------------------------------------------------------- filtering */
 
-type DateOp = "any" | "on" | "before" | "after";
+type DateOp = "on" | "before" | "after";
 export interface SessionFilter {
   startedOp: DateOp;
-  startedDate: string; // YYYY-MM-DD
+  startedDate: string; // YYYY-MM-DD; empty means no constraint
   activeOp: DateOp;
   activeDate: string;
 }
-export const EMPTY_FILTER: SessionFilter = { startedOp: "any", startedDate: "", activeOp: "any", activeDate: "" };
+export const EMPTY_FILTER: SessionFilter = { startedOp: "after", startedDate: "", activeOp: "after", activeDate: "" };
 
 /** sv-SE renders a local Date as YYYY-MM-DD, which compares chronologically as a string. */
 function localYMD(ms: number | null): string | null {
   return ms === null ? null : new Date(ms).toLocaleDateString("sv-SE");
 }
 function opMatches(ymd: string | null, op: DateOp, value: string): boolean {
-  if (op === "any" || !value) return true;
-  if (ymd === null) return false; // no date to compare against a date criterion
+  if (!value) return true; // empty date = no constraint
+  if (ymd === null) return false; // a session with no date can't satisfy a date criterion
   if (op === "on") return ymd === value;
   if (op === "before") return ymd < value;
   return ymd > value; // after
@@ -40,7 +40,7 @@ export function sessionMatchesFilter(session: ClaudeSessionSummaryDto, f: Sessio
     opMatches(localYMD(session.mtimeMs), f.activeOp, f.activeDate)
   );
 }
-const filterActive = (f: SessionFilter) => f.startedOp !== "any" || f.activeOp !== "any";
+const filterActive = (f: SessionFilter) => f.startedDate !== "" || f.activeDate !== "";
 
 const FILTER_FIELD =
   "rounded border border-gray-700 bg-gray-950/60 px-1.5 py-1 text-xs text-gray-200 focus:border-green-600 focus:outline-none disabled:opacity-40";
@@ -62,12 +62,11 @@ function FilterRow({
     <div className="flex items-center gap-1.5">
       <span className="w-16 flex-shrink-0 text-[11px] text-gray-500">{label}</span>
       <select aria-label={`${label} filter`} value={op} onChange={(e) => onOp(e.target.value as DateOp)} className={cx(FILTER_FIELD, "cursor-pointer")}>
-        <option value="any">any</option>
         <option value="on">on</option>
         <option value="before">before</option>
         <option value="after">after</option>
       </select>
-      <input aria-label={`${label} date`} type="date" value={date} disabled={op === "any"} onChange={(e) => onDate(e.target.value)} className={cx(FILTER_FIELD, "min-w-0 flex-1")} />
+      <input aria-label={`${label} date`} type="date" value={date} onChange={(e) => onDate(e.target.value)} className={cx(FILTER_FIELD, "min-w-0 flex-1")} />
     </div>
   );
 }
