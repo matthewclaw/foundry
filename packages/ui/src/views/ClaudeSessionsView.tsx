@@ -5,12 +5,86 @@
  * path; this view reconstructs the folder hierarchy from those paths and, like VSCode's
  * "compact folders", collapses single-child folder chains into one combined segment.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiClient } from "../api/client.js";
 import type { ClaudeSessionGroupDto, ClaudeSessionSummaryDto } from "../api/types.js";
 import { EmptyState, ErrorState, Icon, Loading, PageHeader, cx } from "../components/ui.js";
 import { TranscriptTurn } from "../components/transcript.js";
+
+/* --------------------------------------------------------------------- filtering */
+
+type DateOp = "any" | "on" | "before" | "after";
+export interface SessionFilter {
+  startedOp: DateOp;
+  startedDate: string; // YYYY-MM-DD
+  activeOp: DateOp;
+  activeDate: string;
+}
+export const EMPTY_FILTER: SessionFilter = { startedOp: "any", startedDate: "", activeOp: "any", activeDate: "" };
+
+/** sv-SE renders a local Date as YYYY-MM-DD, which compares chronologically as a string. */
+function localYMD(ms: number | null): string | null {
+  return ms === null ? null : new Date(ms).toLocaleDateString("sv-SE");
+}
+function opMatches(ymd: string | null, op: DateOp, value: string): boolean {
+  if (op === "any" || !value) return true;
+  if (ymd === null) return false; // no date to compare against a date criterion
+  if (op === "on") return ymd === value;
+  if (op === "before") return ymd < value;
+  return ymd > value; // after
+}
+export function sessionMatchesFilter(session: ClaudeSessionSummaryDto, f: SessionFilter): boolean {
+  return (
+    opMatches(localYMD(session.startedAtMs), f.startedOp, f.startedDate) &&
+    opMatches(localYMD(session.mtimeMs), f.activeOp, f.activeDate)
+  );
+}
+const filterActive = (f: SessionFilter) => f.startedOp !== "any" || f.activeOp !== "any";
+
+const FILTER_FIELD =
+  "rounded border border-gray-700 bg-gray-950/60 px-1.5 py-1 text-xs text-gray-200 focus:border-green-600 focus:outline-none disabled:opacity-40";
+
+function FilterRow({
+  label,
+  op,
+  date,
+  onOp,
+  onDate,
+}: {
+  label: string;
+  op: DateOp;
+  date: string;
+  onOp: (op: DateOp) => void;
+  onDate: (date: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-16 flex-shrink-0 text-[11px] text-gray-500">{label}</span>
+      <select aria-label={`${label} filter`} value={op} onChange={(e) => onOp(e.target.value as DateOp)} className={cx(FILTER_FIELD, "cursor-pointer")}>
+        <option value="any">any</option>
+        <option value="on">on</option>
+        <option value="before">before</option>
+        <option value="after">after</option>
+      </select>
+      <input aria-label={`${label} date`} type="date" value={date} disabled={op === "any"} onChange={(e) => onDate(e.target.value)} className={cx(FILTER_FIELD, "min-w-0 flex-1")} />
+    </div>
+  );
+}
+
+function FilterBar({ filter, setFilter }: { filter: SessionFilter; setFilter: Dispatch<SetStateAction<SessionFilter>> }) {
+  return (
+    <div className="flex-shrink-0 space-y-1.5 border-b border-gray-800 p-2.5">
+      <FilterRow label="Started" op={filter.startedOp} date={filter.startedDate} onOp={(op) => setFilter((f) => ({ ...f, startedOp: op }))} onDate={(d) => setFilter((f) => ({ ...f, startedDate: d }))} />
+      <FilterRow label="Last active" op={filter.activeOp} date={filter.activeDate} onOp={(op) => setFilter((f) => ({ ...f, activeOp: op }))} onDate={(d) => setFilter((f) => ({ ...f, activeDate: d }))} />
+      {filterActive(filter) && (
+        <button type="button" onClick={() => setFilter(EMPTY_FILTER)} className="text-[11px] text-gray-500 hover:text-green-400">
+          Clear filters
+        </button>
+      )}
+    </div>
+  );
+}
 
 /* ---------------------------------------------------------------- tree building */
 
@@ -190,6 +264,9 @@ function TranscriptPane({ selection, onClose }: { selection: Selection | null; o
     queryFn: () => apiClient.getClaudeSessionDetail(selection!.projectDir, selection!.session.id),
     enabled: !!selection,
   });
+  const reveal = useMutation({
+    mutationFn: () => apiClient.revealClaudeSession(selection!.projectDir, selection!.session.id),
+  });
 
   // Open a chat at its last message — that's usually where the interesting part is.
   useEffect(() => {
@@ -213,6 +290,17 @@ function TranscriptPane({ selection, onClose }: { selection: Selection | null; o
             <span className="text-sm text-gray-500">Transcript</span>
           )}
         </div>
+        {session && (
+          <button
+            type="button"
+            aria-label="Reveal in file explorer"
+            title="Reveal this file in your OS file explorer"
+            onClick={() => reveal.mutate()}
+            className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
+          >
+            <Icon name="folder" size={15} />
+          </button>
+        )}
         <button
           type="button"
           aria-label="Close panel"
@@ -252,6 +340,7 @@ export default function ClaudeSessionsView() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<SessionFilter>(EMPTY_FILTER);
 
   // Selecting a chat always reveals the transcript, even if the panel was closed.
   const select = (sel: Selection) => {
@@ -263,7 +352,14 @@ export default function ClaudeSessionsView() {
     () => (data?.groups.some((g) => g.repoPath.includes("\\")) ? "\\" : "/"),
     [data]
   );
-  const tree = useMemo(() => (data ? buildSessionTree(data.groups, sep) : []), [data, sep]);
+  // Apply the date filter to each group's chats, dropping groups left with none.
+  const filteredGroups = useMemo(() => {
+    if (!data) return [];
+    return data.groups
+      .map((g) => ({ ...g, sessions: g.sessions.filter((s) => sessionMatchesFilter(s, filter)) }))
+      .filter((g) => g.sessions.length > 0);
+  }, [data, filter]);
+  const tree = useMemo(() => buildSessionTree(filteredGroups, sep), [filteredGroups, sep]);
 
   // Clear a stale selection if the sessions list changes and no longer contains it.
   useEffect(() => {
@@ -296,13 +392,20 @@ export default function ClaudeSessionsView() {
         <div className="flex min-h-0 flex-1 gap-4">
           <div
             className={cx(
-              "overflow-y-auto rounded-lg border border-gray-800 bg-gray-900/50 py-2",
+              "flex flex-col overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50",
               panelOpen ? "w-80 flex-shrink-0" : "flex-1"
             )}
           >
-            {tree.map((node) => (
-              <FolderRow key={node.path} node={node} depth={0} collapsed={collapsed} toggle={toggle} selection={selection} onSelect={select} />
-            ))}
+            <FilterBar filter={filter} setFilter={setFilter} />
+            <div className="flex-1 overflow-y-auto py-2">
+              {tree.length === 0 ? (
+                <div className="px-3 py-4 text-xs text-gray-500">No chats match the filter.</div>
+              ) : (
+                tree.map((node) => (
+                  <FolderRow key={node.path} node={node} depth={0} collapsed={collapsed} toggle={toggle} selection={selection} onSelect={select} />
+                ))
+              )}
+            </div>
           </div>
           {panelOpen && (
             <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50">

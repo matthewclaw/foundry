@@ -188,7 +188,11 @@ export function createServer(config: ServerConfig): FoundryServer {
     },
   });
 
-  const app = Fastify({ logger: false });
+  // Claude session project-dir names encode a full absolute path and can easily exceed
+  // find-my-way's default 100-char param limit (e.g. a scratchpad under
+  // AppData\Local\Temp), which otherwise makes /api/claude-sessions/:projectDir/... 404
+  // with a "route not found" for exactly those sessions.
+  const app = Fastify({ logger: false, maxParamLength: 1024 });
   app.setErrorHandler(problemErrorHandler);
 
   app.get("/api/health", async () => ({ ok: true }));

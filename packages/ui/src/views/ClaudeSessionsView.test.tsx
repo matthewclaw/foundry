@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ClaudeSessionDetailDto, ClaudeSessionGroupDto } from "../api/types.js";
-import ClaudeSessionsView, { buildSessionTree } from "./ClaudeSessionsView.js";
+import type { ClaudeSessionDetailDto, ClaudeSessionGroupDto, ClaudeSessionSummaryDto } from "../api/types.js";
+import ClaudeSessionsView, { buildSessionTree, sessionMatchesFilter, EMPTY_FILTER } from "./ClaudeSessionsView.js";
 
 vi.mock("../api/client.js", () => ({
   apiClient: {
@@ -105,6 +105,41 @@ describe("buildSessionTree", () => {
   });
 });
 
+describe("sessionMatchesFilter", () => {
+  const s = (startedMs: number | null, mtimeMs: number): ClaudeSessionSummaryDto => ({
+    id: "x",
+    filePath: "",
+    startedAtMs: startedMs,
+    mtimeMs,
+    sizeBytes: 0,
+    preview: null,
+  });
+  // Local-constructed dates so YMD conversion is timezone-stable.
+  const jul15 = new Date(2026, 6, 15).getTime();
+  const jan2020 = new Date(2020, 0, 1).getTime();
+
+  it("matches everything with the empty filter", () => {
+    expect(sessionMatchesFilter(s(jul15, jul15), EMPTY_FILTER)).toBe(true);
+    expect(sessionMatchesFilter(s(null, jul15), EMPTY_FILTER)).toBe(true);
+  });
+
+  it("filters by started date with before/after/on", () => {
+    expect(sessionMatchesFilter(s(jul15, jul15), { ...EMPTY_FILTER, startedOp: "after", startedDate: "2023-01-01" })).toBe(true);
+    expect(sessionMatchesFilter(s(jan2020, jan2020), { ...EMPTY_FILTER, startedOp: "after", startedDate: "2023-01-01" })).toBe(false);
+    expect(sessionMatchesFilter(s(jan2020, jan2020), { ...EMPTY_FILTER, startedOp: "before", startedDate: "2023-01-01" })).toBe(true);
+    expect(sessionMatchesFilter(s(jul15, jul15), { ...EMPTY_FILTER, startedOp: "on", startedDate: "2026-07-15" })).toBe(true);
+  });
+
+  it("excludes a session with no start date when filtering on start", () => {
+    expect(sessionMatchesFilter(s(null, jul15), { ...EMPTY_FILTER, startedOp: "on", startedDate: "2026-07-15" })).toBe(false);
+  });
+
+  it("filters by last-active independently", () => {
+    expect(sessionMatchesFilter(s(null, jul15), { ...EMPTY_FILTER, activeOp: "after", activeDate: "2023-01-01" })).toBe(true);
+    expect(sessionMatchesFilter(s(null, jan2020), { ...EMPTY_FILTER, activeOp: "after", activeDate: "2023-01-01" })).toBe(false);
+  });
+});
+
 describe("ClaudeSessionsView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -182,6 +217,33 @@ describe("ClaudeSessionsView", () => {
     // Selecting another chat brings the panel back.
     fireEvent.click(screen.getByText("Add a test"));
     expect(screen.getByLabelText("Close panel")).toBeTruthy();
+  });
+
+  it("filters chats by a start-date condition and restores them on clear", async () => {
+    vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups });
+    renderView();
+
+    await screen.findByText("Fix the bug");
+    // Fixture sessions are epoch-1970; "started after 2000" excludes them all.
+    fireEvent.change(screen.getByLabelText("Started filter"), { target: { value: "after" } });
+    fireEvent.change(screen.getByLabelText("Started date"), { target: { value: "2000-01-01" } });
+    expect(screen.queryByText("Fix the bug")).toBeNull();
+    expect(screen.getByText("No chats match the filter.")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Clear filters"));
+    expect(screen.getByText("Fix the bug")).toBeTruthy();
+  });
+
+  it("reveals the open chat's file from the transcript header", async () => {
+    vi.mocked(apiClient.getClaudeSessions).mockResolvedValue({ groups });
+    vi.mocked(apiClient.getClaudeSessionDetail).mockResolvedValue(detail);
+    vi.mocked(apiClient.revealClaudeSession).mockResolvedValue({ ok: true });
+    renderView();
+
+    fireEvent.click(await screen.findByText("Fix the bug"));
+    await screen.findByText("Done, ", { exact: false });
+    fireEvent.click(screen.getByLabelText("Reveal in file explorer"));
+    await waitFor(() => expect(apiClient.revealClaudeSession).toHaveBeenCalledWith("c--repos-ade", SESSION_1));
   });
 
   it("renders an empty state when there are no sessions", async () => {
