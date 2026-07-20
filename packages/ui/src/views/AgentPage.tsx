@@ -174,18 +174,70 @@ const WS_STATE_CLASS: Record<string, string> = {
   closed: "text-gray-500",
 };
 
+function WorkstreamRow({ agentId, ws }: { agentId: string; ws: { id: string; title: string; state: string } }) {
+  const queryClient = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => apiClient.deleteWorkstream(ws.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["org"] });
+    },
+  });
+  const handleDelete = () => {
+    if (window.confirm(`Delete workstream "${ws.title}"? This permanently removes it and all its runs and history. This cannot be undone.`)) {
+      del.mutate();
+    }
+  };
+  return (
+    <li className="group flex items-center gap-2 py-2">
+      <Link to={`/workstreams/${ws.id}`} className="text-sm text-gray-200 hover:text-green-300 hover:underline">
+        {ws.title}
+      </Link>
+      <span className={cx("ml-auto text-xs", WS_STATE_CLASS[ws.state] ?? "text-gray-500")}>{ws.state}</span>
+      <button
+        type="button"
+        aria-label={`Delete workstream ${ws.title}`}
+        className="rounded border border-transparent px-2 py-0.5 text-xs text-gray-600 opacity-0 transition hover:border-red-500/50 hover:bg-red-950/40 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"
+        disabled={del.isPending}
+        onClick={handleDelete}
+      >
+        {del.isPending ? "Deleting…" : "Delete"}
+      </button>
+    </li>
+  );
+}
+
 export default function AgentPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { data, isLoading, error } = useQuery({
     queryKey: ["agent", id],
     queryFn: () => apiClient.getAgent(id!),
     enabled: !!id,
   });
   const [showNewWorkstream, setShowNewWorkstream] = useState(false);
+  const queryClient = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => apiClient.deleteAgent(id!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["org"] });
+      navigate("/");
+    },
+  });
 
   if (isLoading) return <Loading label="Loading agent…" />;
   if (error) return <ErrorState error={error} />;
   if (!data) return null;
+
+  const handleDelete = () => {
+    if (
+      window.confirm(
+        `Delete agent "${data.agent.name}"? This permanently removes it and all its workstreams, runs, and history. This cannot be undone.`
+      )
+    ) {
+      del.mutate();
+    }
+  };
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -204,7 +256,13 @@ export default function AgentPage() {
             <span className="text-gray-500">engine: {data.agent.engine.id}</span>
           </span>
         }
+        actions={
+          <Button variant="danger" size="sm" onClick={handleDelete} disabled={del.isPending}>
+            {del.isPending ? "Deleting…" : "Delete agent"}
+          </Button>
+        }
       />
+      {del.error && <ErrorText error={del.error} />}
 
       <CharterSection agentId={data.agent.id} charter={data.charter} />
 
@@ -229,12 +287,7 @@ export default function AgentPage() {
         ) : (
           <ul className="divide-y divide-gray-800/70">
             {data.workstreams.map((ws) => (
-              <li key={ws.id} className="flex items-center gap-2 py-2">
-                <Link to={`/workstreams/${ws.id}`} className="text-sm text-gray-200 hover:text-green-300 hover:underline">
-                  {ws.title}
-                </Link>
-                <span className={cx("ml-auto text-xs", WS_STATE_CLASS[ws.state] ?? "text-gray-500")}>{ws.state}</span>
-              </li>
+              <WorkstreamRow key={ws.id} agentId={data.agent.id} ws={ws} />
             ))}
           </ul>
         )}

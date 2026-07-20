@@ -10,7 +10,7 @@ import type { OrgView, OrgViewAgent, OrgViewTeam, AgentStatus } from "../api/typ
 import OrgViewComponent, { statusBadge } from "./OrgView.js";
 
 vi.mock("../api/client.js", () => ({
-  apiClient: { getOrg: vi.fn(), createTeam: vi.fn(), createAgent: vi.fn(), patchTeam: vi.fn(), deleteTeam: vi.fn() },
+  apiClient: { getOrg: vi.fn(), createTeam: vi.fn(), createAgent: vi.fn(), patchTeam: vi.fn(), deleteTeam: vi.fn(), deleteAgent: vi.fn() },
 }));
 import { apiClient } from "../api/client.js";
 
@@ -193,6 +193,35 @@ describe("OrgView", () => {
 
     fireEvent.click(screen.getByText("Delete"));
     await waitFor(() => expect(apiClient.deleteTeam).toHaveBeenCalledWith("team-1"));
+
+    confirmSpy.mockRestore();
+  });
+
+  it("hard-deletes an agent row after confirming", async () => {
+    const fixture: OrgView = {
+      teams: [],
+      unassignedAgents: [
+        {
+          id: "a1" as OrgViewAgent["id"],
+          name: "Loner",
+          role: "Agent",
+          team_id: null,
+          state: "active",
+          status: "blocked", // non-calm ⇒ the Unassigned bucket auto-expands, rendering the row
+        },
+      ],
+    };
+    vi.mocked(apiClient.getOrg).mockResolvedValue(fixture);
+    vi.mocked(apiClient.deleteAgent).mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    renderOrgView();
+
+    await screen.findByText("Loner");
+    fireEvent.click(screen.getByLabelText("Delete agent Loner"));
+    expect(apiClient.deleteAgent).not.toHaveBeenCalled(); // cancelled
+
+    fireEvent.click(screen.getByLabelText("Delete agent Loner"));
+    await waitFor(() => expect(apiClient.deleteAgent).toHaveBeenCalledWith("a1"));
 
     confirmSpy.mockRestore();
   });

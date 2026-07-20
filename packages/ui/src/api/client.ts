@@ -73,6 +73,8 @@ export const apiClient = {
   patchTeam: (id: string, body: { name?: string; description?: string }) =>
     request<{ id: string; name: string; description: string }>(`/teams/${id}`, json("PATCH", body)),
   deleteTeam: (id: string) => request<void>(`/teams/${id}`, { method: "DELETE" }),
+  deleteAgent: (id: string) => request<void>(`/agents/${id}`, { method: "DELETE" }),
+  deleteWorkstream: (id: string) => request<void>(`/workstreams/${id}`, { method: "DELETE" }),
   createWorkstream: (body: CreateWorkstreamBody) =>
     request<{ id: string }>("/workstreams", json("POST", { ...body, budget: {} })),
   getClaudeSessions: () => request<{ groups: ClaudeSessionGroupDto[] }>("/claude-sessions"),

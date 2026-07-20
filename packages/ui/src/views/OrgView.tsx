@@ -46,12 +46,24 @@ const isException = (s: AgentStatus) => s === "blocked" || s === "degraded";
 
 function AgentRow({ agent }: { agent: OrgViewAgent }) {
   const emphasized = isException(agent.status);
+  const queryClient = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => apiClient.deleteAgent(agent.id),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["org"] }),
+  });
+  const handleDelete = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (window.confirm(`Delete agent "${agent.name}"? This permanently removes it and all its workstreams, runs, and history. This cannot be undone.`)) {
+      del.mutate();
+    }
+  };
   return (
     <Link
       to={`/agents/${agent.id}`}
       data-testid="agent-row"
       className={cx(
-        "flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-gray-800/40",
+        "group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-gray-800/40",
         emphasized && "border-l-2 border-red-500 bg-red-950/30"
       )}
     >
@@ -69,6 +81,15 @@ function AgentRow({ agent }: { agent: OrgViewAgent }) {
       {agent.spend_usd !== undefined && (
         <span className="flex-shrink-0 font-mono text-xs text-gray-500">${agent.spend_usd.toFixed(2)}</span>
       )}
+      <button
+        type="button"
+        aria-label={`Delete agent ${agent.name}`}
+        className="flex-shrink-0 rounded border border-transparent px-2 py-0.5 text-xs text-gray-600 opacity-0 transition hover:border-red-500/50 hover:bg-red-950/40 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"
+        disabled={del.isPending}
+        onClick={handleDelete}
+      >
+        {del.isPending ? "Deleting…" : "Delete"}
+      </button>
     </Link>
   );
 }

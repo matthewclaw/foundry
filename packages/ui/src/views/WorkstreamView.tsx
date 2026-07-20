@@ -12,7 +12,7 @@
  * feed (GET /api/events) into a local buffer and renders like a terminal.
  */
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import { apiClient } from "../api/client.js";
@@ -712,6 +712,18 @@ export default function WorkstreamView() {
     enabled: !!id,
   });
   const [showNewConversation, setShowNewConversation] = useState(false);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => apiClient.deleteWorkstream(id!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["org"] });
+      navigate(agentIdRef.current ? `/agents/${agentIdRef.current}` : "/");
+    },
+  });
+  // The agent id lives on the fetched header; capture it in a ref so the delete's
+  // onSuccess (which runs after the row may already be gone) still knows where to land.
+  const agentIdRef = useRef<string | undefined>(undefined);
 
   // Baseline seq is captured once (from the first successful fetch) and intentionally not
   // kept in sync with later refetches — connectFeed's own `after` tracking takes over from
@@ -731,6 +743,17 @@ export default function WorkstreamView() {
   const conversations = groupIntoConversations(data.runs);
   const header = data.workstream;
   const agent = header?.agent;
+  agentIdRef.current = agent?.id;
+
+  const handleDelete = () => {
+    if (
+      window.confirm(
+        `Delete workstream "${header?.title ?? "this workstream"}"? This permanently removes it and all its runs and history. This cannot be undone.`
+      )
+    ) {
+      del.mutate();
+    }
+  };
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -760,11 +783,17 @@ export default function WorkstreamView() {
           </div>
         }
         actions={
-          <Button variant="secondary" size="sm" onClick={() => setShowNewConversation((s) => !s)}>
-            {showNewConversation ? "Cancel" : "+ New conversation"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowNewConversation((s) => !s)}>
+              {showNewConversation ? "Cancel" : "+ New conversation"}
+            </Button>
+            <Button variant="danger" size="sm" onClick={handleDelete} disabled={del.isPending}>
+              {del.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
         }
       />
+      {del.error && <ErrorText error={del.error} />}
 
       {showNewConversation && (
         <NewConversationForm workstreamId={id!} onDone={() => setShowNewConversation(false)} />

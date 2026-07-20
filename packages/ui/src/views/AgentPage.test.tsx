@@ -15,7 +15,7 @@ function WorkstreamPlaceholder() {
 }
 
 vi.mock("../api/client.js", () => ({
-  apiClient: { getAgent: vi.fn(), patchAgent: vi.fn(), createWorkstream: vi.fn() },
+  apiClient: { getAgent: vi.fn(), patchAgent: vi.fn(), createWorkstream: vi.fn(), deleteAgent: vi.fn(), deleteWorkstream: vi.fn() },
 }));
 import { apiClient } from "../api/client.js";
 
@@ -158,5 +158,32 @@ describe("AgentPage", () => {
         workspace_ref: undefined,
       })
     );
+  });
+
+  it("hard-deletes the agent from the header after confirming", async () => {
+    vi.mocked(apiClient.deleteAgent).mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    renderPage();
+    await screen.findByText("Orbit Backend Engineer");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete agent" }));
+    expect(apiClient.deleteAgent).not.toHaveBeenCalled(); // cancelled
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete agent" }));
+    await waitFor(() => expect(apiClient.deleteAgent).toHaveBeenCalledWith("ag1"));
+
+    confirmSpy.mockRestore();
+  });
+
+  it("hard-deletes a single workstream from the list after confirming", async () => {
+    vi.mocked(apiClient.deleteWorkstream).mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderPage();
+    await screen.findByText("Authentication Refactor");
+
+    fireEvent.click(screen.getByLabelText("Delete workstream Authentication Refactor"));
+    await waitFor(() => expect(apiClient.deleteWorkstream).toHaveBeenCalledWith("ws1"));
+
+    confirmSpy.mockRestore();
   });
 });

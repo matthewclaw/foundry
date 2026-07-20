@@ -12,7 +12,7 @@ import type { FeedEvent, Timeline, TimelineRunEntry } from "../api/types.js";
 import WorkstreamView from "./WorkstreamView.js";
 
 vi.mock("../api/client.js", () => ({
-  apiClient: { getTimeline: vi.fn(), postWorkstreamMessage: vi.fn(), setRunTitle: vi.fn() },
+  apiClient: { getTimeline: vi.fn(), postWorkstreamMessage: vi.fn(), setRunTitle: vi.fn(), deleteWorkstream: vi.fn() },
 }));
 import { apiClient } from "../api/client.js";
 
@@ -418,5 +418,20 @@ describe("WorkstreamView", () => {
 
     act(() => socket.onmessage?.({ data: JSON.stringify({ type: "busy" }) }));
     expect(screen.getByText(/busy/)).toBeTruthy();
+  });
+
+  it("hard-deletes the workstream from the header after confirming", async () => {
+    vi.mocked(apiClient.deleteWorkstream).mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    renderView({ workstreamId: "ws1", runs: [run1] });
+    await screen.findAllByText(/Fix the auth module/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(apiClient.deleteWorkstream).not.toHaveBeenCalled(); // cancelled
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(apiClient.deleteWorkstream).toHaveBeenCalledWith("ws1"));
+
+    confirmSpy.mockRestore();
   });
 });
