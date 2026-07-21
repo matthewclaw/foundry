@@ -10,6 +10,7 @@ export * from "./state-machines/transitions.js";
 export * from "./events/catalogue.js";
 
 export * from "./org-tools/schemas.js";
+export * from "./org-tools/describe.js";
 
 export * from "./api/dto.js";
 export * from "./api/errors.js";

@@ -12,6 +12,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   canTransition,
+  describeOrgToolInput,
   ORG_TOOL_INPUT_SCHEMAS,
   type DelegateTaskInput,
   type DeliverTaskInput,
@@ -488,10 +489,15 @@ export function registerOrgToolRoutes(app: FastifyInstance, ctx: RouteContext): 
     const parsed = inputSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       // Invalid input is a tool-level error the agent should see and react to, not a
-      // transport failure — same channel as policy rejections.
+      // transport failure — same channel as policy rejections. Echo the expected fields
+      // (derived from the same Zod schema) so the agent self-corrects instead of guessing.
       const result: ToolResult<never> = {
         ok: false,
-        error: { code: "policy_violation", message: `invalid ${toolName} input`, details: parsed.error.issues },
+        error: {
+          code: "policy_violation",
+          message: `invalid ${toolName} input.\n${describeOrgToolInput(toolName)}`,
+          details: parsed.error.issues,
+        },
       };
       return reply.status(200).send(result);
     }

@@ -149,4 +149,5 @@ export function isValidRef(value: string): value is Ref {
 
 export const RefSchema = z
   .string()
-  .refine(isValidRef, { message: "Invalid ref" }) as unknown as z.ZodType<Ref>;
+  .refine(isValidRef, { message: "Invalid ref" })
+  .describe(`"<kind>:<id>" ref (kind ∈ ${REF_KINDS.join("|")}; id is a ULID, or a decimal seq for event) — e.g. "artifact:01H…"; use [] if none`) as unknown as z.ZodType<Ref>;

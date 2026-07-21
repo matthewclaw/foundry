@@ -6,6 +6,18 @@
  */
 import { request } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { ORG_TOOL_INPUT_SCHEMAS, describeOrgToolInput, listOrgTools, type OrgToolName } from "@foundry/core";
+
+// `--help` (or no tool): print the tool roster or a tool's exact input schema, derived
+// from the Zod definitions — no network/auth needed. This is the discovery path so an
+// agent never has to guess a payload (or which fields a tool wants).
+const helpIdx = process.argv.findIndex((a) => a === "--help" || a === "-h");
+const firstArg = process.argv[2];
+if (helpIdx !== -1 || !firstArg) {
+  const tool = firstArg && firstArg in ORG_TOOL_INPUT_SCHEMAS ? (firstArg as OrgToolName) : undefined;
+  console.log(tool ? describeOrgToolInput(tool) : `Usage: foundry-org-tool <tool-name> '<json-input>'\n\n${listOrgTools()}`);
+  process.exit(0);
+}
 
 const url = process.env.FOUNDRY_ORG_TOOLS_URL;
 const token = process.env.FOUNDRY_ORG_TOOLS_TOKEN;
