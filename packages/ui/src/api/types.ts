@@ -211,3 +211,14 @@ export interface ClaudeSessionDetailDto {
   sizeBytes: number;
   turns: ClaudeSessionTurnDto[];
 }
+
+export interface WorkspaceInfo {
+  path: string;
+  kind: "git_worktree" | "plain_dir" | "scratch";
+  exists: boolean;
+  git: {
+    branch: string;
+    changed: { status: string; path: string }[];
+    committed: boolean;
+  } | null;
+}

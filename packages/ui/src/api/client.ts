@@ -8,6 +8,7 @@ import type {
   TreeView,
   ClaudeSessionGroupDto,
   ClaudeSessionDetailDto,
+  WorkspaceInfo,
 } from "./types.js";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -78,6 +79,16 @@ export const apiClient = {
   deleteWorkstream: (id: string) => request<void>(`/workstreams/${id}`, { method: "DELETE" }),
   cancelTask: (id: string, reason?: string) =>
     request<{ ok: true }>(`/tasks/${id}/cancel`, json("POST", { reason })),
+  getWorkspace: (workstreamId: string) => request<WorkspaceInfo>(`/workstreams/${workstreamId}/workspace`),
+  openWorkspace: (workstreamId: string) =>
+    request<{ ok: boolean; path: string }>(`/workstreams/${workstreamId}/workspace/open`, json("POST", {})),
+  revealWorkspace: (workstreamId: string) =>
+    request<{ ok: boolean; path: string }>(`/workstreams/${workstreamId}/workspace/reveal`, json("POST", {})),
+  promoteWorkspace: (workstreamId: string) =>
+    request<{ ok: boolean; branch?: string; message?: string }>(
+      `/workstreams/${workstreamId}/workspace/promote`,
+      json("POST", {})
+    ),
   createWorkstream: (body: CreateWorkstreamBody) =>
     request<{ id: string }>("/workstreams", json("POST", { ...body, budget: {} })),
   getClaudeSessions: () => request<{ groups: ClaudeSessionGroupDto[] }>("/claude-sessions"),

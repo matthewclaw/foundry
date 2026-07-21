@@ -704,6 +704,90 @@ const WS_STATE_CLASS: Record<string, string> = {
   closed: "text-gray-500",
 };
 
+/** The workstream's on-disk workspace: where the agent worked, what changed, and the
+ * handoff into your own tools. Foundry surfaces + promotes; your IDE reviews + merges.
+ * Hidden for non-code (chat-only) workstreams that never materialised a git workspace. */
+function WorkspacePanel({ workstreamId }: { workstreamId: string }) {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["workspace", workstreamId],
+    queryFn: () => apiClient.getWorkspace(workstreamId),
+  });
+  const open = useMutation({ mutationFn: () => apiClient.openWorkspace(workstreamId) });
+  const reveal = useMutation({ mutationFn: () => apiClient.revealWorkspace(workstreamId) });
+  const promote = useMutation({
+    mutationFn: () => apiClient.promoteWorkspace(workstreamId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["workspace", workstreamId] }),
+  });
+
+  if (!data || !data.exists || (data.kind === "scratch" && !data.git)) return null;
+  const git = data.git;
+  const changed = git?.changed ?? [];
+
+  const handlePromote = () => {
+    if (
+      window.confirm(
+        "Commit the agent's changes onto a new branch in this repo? You then review and merge that branch with your own git tools — Foundry won't merge it for you."
+      )
+    ) {
+      promote.mutate();
+    }
+  };
+
+  return (
+    <Panel className="mb-3 p-3">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <Icon name="folder" size={14} className="text-gray-500" />
+        <span className="text-sm font-semibold text-gray-200">Workspace</span>
+        <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500">
+          {data.kind.replace("_", " ")}
+        </span>
+        {git && <span className="text-xs text-gray-500">on {git.branch}</span>}
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => open.mutate()} disabled={open.isPending}>
+            Open in IDE
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => reveal.mutate()}>
+            Reveal
+          </Button>
+          {git && changed.length > 0 && !git.committed && (
+            <Button variant="primary" size="sm" onClick={handlePromote} disabled={promote.isPending}>
+              {promote.isPending ? "Promoting…" : "Promote to branch"}
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="truncate font-mono text-xs text-gray-500" title={data.path}>
+        {data.path}
+      </p>
+      {git ? (
+        changed.length > 0 ? (
+          <ul className="mt-2 space-y-0.5">
+            {changed.map((c) => (
+              <li key={c.path} className="flex items-center gap-2 text-xs">
+                <span className="w-6 font-mono text-amber-400">{c.status.trim() || "??"}</span>
+                <span className="truncate font-mono text-gray-300">{c.path}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-xs text-gray-500">
+            {git.committed ? "Changes committed — review the branch in your IDE." : "No changes yet."}
+          </p>
+        )
+      ) : (
+        <p className="mt-1 text-xs text-gray-600">Not a git workspace.</p>
+      )}
+      {promote.data?.branch && (
+        <p className="mt-2 text-xs text-green-400">
+          Promoted to <span className="font-mono">{promote.data.branch}</span> — merge it from your IDE.
+        </p>
+      )}
+      {promote.error && <ErrorText error={promote.error} />}
+    </Panel>
+  );
+}
+
 export default function WorkstreamView() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, error } = useQuery({
@@ -794,6 +878,8 @@ export default function WorkstreamView() {
         }
       />
       {del.error && <ErrorText error={del.error} />}
+
+      <WorkspacePanel workstreamId={id!} />
 
       {showNewConversation && (
         <NewConversationForm workstreamId={id!} onDone={() => setShowNewConversation(false)} />

@@ -12,7 +12,16 @@ import type { FeedEvent, Timeline, TimelineRunEntry } from "../api/types.js";
 import WorkstreamView from "./WorkstreamView.js";
 
 vi.mock("../api/client.js", () => ({
-  apiClient: { getTimeline: vi.fn(), postWorkstreamMessage: vi.fn(), setRunTitle: vi.fn(), deleteWorkstream: vi.fn() },
+  apiClient: {
+    getTimeline: vi.fn(),
+    postWorkstreamMessage: vi.fn(),
+    setRunTitle: vi.fn(),
+    deleteWorkstream: vi.fn(),
+    getWorkspace: vi.fn(),
+    openWorkspace: vi.fn(),
+    revealWorkspace: vi.fn(),
+    promoteWorkspace: vi.fn(),
+  },
 }));
 import { apiClient } from "../api/client.js";
 
@@ -137,6 +146,27 @@ describe("WorkstreamView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     FakeWebSocket.instances.length = 0;
+  });
+
+  it("workspace panel shows changed files and promotes to a branch after confirming", async () => {
+    vi.mocked(apiClient.getWorkspace).mockResolvedValue({
+      path: "C:/data/workspaces/worktree-ws1",
+      kind: "git_worktree",
+      exists: true,
+      git: { branch: "(detached)", changed: [{ status: "??", path: "foundry-hello.md" }], committed: false },
+    });
+    vi.mocked(apiClient.promoteWorkspace).mockResolvedValue({ ok: true, branch: "foundry/x-abc123" });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderView({ workstreamId: "ws1", runs: [run1] });
+
+    // Surfaces where the agent worked and what changed
+    await screen.findByText("foundry-hello.md");
+    expect(screen.getByText("C:/data/workspaces/worktree-ws1")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Promote to branch" }));
+    await waitFor(() => expect(apiClient.promoteWorkspace).toHaveBeenCalledWith("ws1"));
+    await screen.findByText("foundry/x-abc123");
+    confirmSpy.mockRestore();
   });
 
   it("groups runs sharing a session id into one conversation card with both turns", async () => {

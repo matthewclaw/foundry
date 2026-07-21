@@ -30,6 +30,7 @@ import { registerAdminRoutes } from "./routes/admin.js";
 import { registerApprovalRoutes } from "./routes/approvals.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import { registerClaudeSessionRoutes } from "./routes/claudeSessions.js";
+import { registerWorkspaceRoutes } from "./routes/workspace.js";
 import { registerInteractiveRoutes } from "./routes/interactive.js";
 
 export interface ServerConfig {
@@ -207,6 +208,7 @@ export function createServer(config: ServerConfig): FoundryServer {
     store,
     runtime,
     tokens,
+    dataDir: config.dataDir,
     claudeSessionsRoot: config.claudeSessionsRoot ?? join(homedir(), ".claude", "projects"),
     onRunSettled: (runId, cb) => {
       const list = runSettled.get(runId) ?? [];
@@ -217,6 +219,7 @@ export function createServer(config: ServerConfig): FoundryServer {
   registerAgentRoutes(app, ctx);
   registerTeamRoutes(app, ctx);
   registerWorkstreamRoutes(app, ctx);
+  registerWorkspaceRoutes(app, ctx);
   registerQueryRoutes(app, ctx);
   registerFeedRoutes(app, ctx);
   registerOrgToolRoutes(app, ctx);
@@ -289,6 +292,8 @@ export interface RouteContext {
   runtime: Runtime;
   /** E6.1: per-run org-tools credentials (mint on run start, dead at run end). */
   tokens: TokenRegistry;
+  /** The control-plane data dir — used to resolve a workstream's on-disk workspace. */
+  dataDir: string;
   /** Root of Claude Code's own on-disk session transcripts (see `claudeSessions/discover.ts`). */
   claudeSessionsRoot: string;
   /** One-shot callback when a run's execute settles (E11.3 close-after-distillation). */
