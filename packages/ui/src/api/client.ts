@@ -38,6 +38,7 @@ export interface CreateAgentBody {
 export interface CreateTeamBody {
   name: string;
   description?: string;
+  default_workspace_ref?: WorkspaceRefBody | null;
 }
 
 export type WorkspaceRefBody =
@@ -72,8 +73,10 @@ export const apiClient = {
     request<unknown>(`/approvals/${id}/deny`, json("POST", { reason })),
   createAgent: (body: CreateAgentBody) => request<{ id: string }>("/agents", json("POST", body)),
   createTeam: (body: CreateTeamBody) => request<{ id: string; name: string }>("/teams", json("POST", body)),
-  patchTeam: (id: string, body: { name?: string; description?: string }) =>
-    request<{ id: string; name: string; description: string }>(`/teams/${id}`, json("PATCH", body)),
+  patchTeam: (
+    id: string,
+    body: { name?: string; description?: string; default_workspace_ref?: WorkspaceRefBody | null }
+  ) => request<{ id: string; name: string; description: string }>(`/teams/${id}`, json("PATCH", body)),
   deleteTeam: (id: string) => request<void>(`/teams/${id}`, { method: "DELETE" }),
   deleteAgent: (id: string) => request<void>(`/agents/${id}`, { method: "DELETE" }),
   deleteWorkstream: (id: string) => request<void>(`/workstreams/${id}`, { method: "DELETE" }),

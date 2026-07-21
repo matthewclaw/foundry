@@ -127,7 +127,7 @@ describe("OrgView", () => {
     fireEvent.change(screen.getByLabelText("Team name"), { target: { value: "Platform" } });
     fireEvent.click(screen.getByText("Create team"));
 
-    await waitFor(() => expect(apiClient.createTeam).toHaveBeenCalledWith({ name: "Platform", description: "" }));
+    await waitFor(() => expect(apiClient.createTeam).toHaveBeenCalledWith({ name: "Platform", description: "", default_workspace_ref: null }));
     // form closes on success
     await waitFor(() => expect(screen.queryByLabelText("Team name")).toBeNull());
   });

@@ -7,7 +7,7 @@
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Agent, Workstream } from "@foundry/core";
+import type { Agent, Team, Workstream } from "@foundry/core";
 
 export type WorkspaceKind = "git_worktree" | "plain_dir" | "scratch";
 
@@ -32,16 +32,18 @@ export interface WorkspaceInfo {
 /**
  * The absolute dir a workstream's runs execute in — mirrors the runtime's acquireWorkspace
  * derivation (facade.ts / workspace/manager.ts): workstream ref, else the agent default,
- * else scratch; git_worktree/scratch live under `<dataDir>/workspaces/`.
+ * else the agent's team default, else scratch; git_worktree/scratch live under
+ * `<dataDir>/workspaces/`.
  * ponytail: duplicated (not imported) to keep the server off the runtime package; the
  * path convention is stable and the one test below pins it.
  */
 export function resolveWorkspaceDir(
   dataDir: string,
   workstream: Workstream,
-  agent: Agent
+  agent: Agent,
+  team?: Team | null
 ): { path: string; kind: WorkspaceKind } {
-  const ref = workstream.workspace_ref ?? agent.default_workspace_ref ?? null;
+  const ref = workstream.workspace_ref ?? agent.default_workspace_ref ?? team?.default_workspace_ref ?? null;
   if (ref?.kind === "git_worktree") {
     return { path: join(dataDir, "workspaces", `worktree-${workstream.id}`), kind: "git_worktree" };
   }
@@ -73,7 +75,9 @@ export function inspectWorkspace(path: string, kind: WorkspaceKind): WorkspaceIn
   } catch {
     /* detached HEAD — the state Foundry's worktrees start in */
   }
-  const porcelain = git(path, ["status", "--porcelain=v1"]);
+  // -uall: list each untracked file, not the collapsed parent dir ("docs/foundry-e2e.md",
+  // not "docs/") — the panel is meant to show what the agent actually created.
+  const porcelain = git(path, ["status", "--porcelain=v1", "--untracked-files=all"]);
   const changed: WorkspaceChange[] = porcelain
     ? porcelain.split("\n").map((line) => ({ status: line.slice(0, 2), path: line.slice(3) }))
     : [];

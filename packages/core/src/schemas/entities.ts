@@ -89,6 +89,10 @@ export const TeamSchema = z.object({
   name: z.string().min(1),
   description: z.string(),
   default_policy: PolicySchema,
+  // "This team works on this project": agents in the team inherit this repo/dir for their
+  // runs unless the agent (a "consultant") or workstream overrides it. See workspace
+  // resolution in runtime/facade.ts — team default sits below the agent default.
+  default_workspace_ref: WorkspaceRefSchema.nullable(),
 });
 export type Team = z.infer<typeof TeamSchema>;
 

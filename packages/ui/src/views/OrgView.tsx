@@ -8,8 +8,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "../api/client.js";
+import { apiClient, type WorkspaceRefBody } from "../api/client.js";
 import type { AgentStatus, OrgViewAgent, OrgViewTeam } from "../api/types.js";
+import type { WorkspaceRef } from "@foundry/core";
 import {
   Button,
   EmptyState,
@@ -148,16 +149,68 @@ function TeamRenameControl({
   );
 }
 
+/** Assigned-project row inside an expanded team: view + set/change/clear the team's repo. */
+function TeamRepoControl({ teamId, repoRef }: { teamId: string; repoRef: WorkspaceRef | null }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [wsRef, setWsRef] = useState<WorkspaceRefBody | null>(null);
+  const save = useMutation({
+    mutationFn: (ref: WorkspaceRefBody | null) => apiClient.patchTeam(teamId, { default_workspace_ref: ref }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["org"] });
+      setEditing(false);
+    },
+  });
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-2 text-xs text-gray-400">
+        <Icon name="folder" size={12} className="text-gray-500" />
+        {repoRef ? (
+          <>
+            <span className="font-mono text-gray-300">{refPath(repoRef)}</span>
+            <span className="text-gray-600">{repoRef.kind === "git_worktree" ? "· isolated worktree per task" : "· runs in place"}</span>
+          </>
+        ) : (
+          <span className="text-gray-500">No project assigned — agents fall back to a scratch dir.</span>
+        )}
+        <button type="button" className="ml-auto text-green-400 hover:underline" onClick={() => { setWsRef(repoRef ?? null); setEditing(true); }}>
+          {repoRef ? "Change" : "Assign a project"}
+        </button>
+        {repoRef && (
+          <button type="button" className="text-gray-500 hover:text-red-300" disabled={save.isPending} onClick={() => save.mutate(null)}>
+            Clear
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="px-4 py-3">
+      <WorkspaceField initial={repoRef} label="Project directory — agents in this team inherit it" disabled={save.isPending} onChange={setWsRef} />
+      <div className="flex items-center gap-3">
+        <Button type="button" variant="primary" size="sm" disabled={save.isPending} onClick={() => save.mutate(wsRef)}>
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+        {save.error && <ErrorText error={save.error} />}
+      </div>
+    </div>
+  );
+}
+
 function TeamSection({
   id,
   name,
   status,
   agents,
+  repoRef,
 }: {
   id?: string;
   name: string;
   status: AgentStatus;
   agents: OrgViewAgent[];
+  repoRef?: WorkspaceRef | null;
 }) {
   const [expanded, setExpanded] = useState(!isCalm(agents));
   const [renaming, setRenaming] = useState(false);
@@ -217,6 +270,12 @@ function TeamSection({
         <span className="text-xs text-gray-500">
           {agents.length} agent{agents.length === 1 ? "" : "s"}
         </span>
+        {repoRef && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-gray-500" title={refPath(repoRef)}>
+            <Icon name="folder" size={11} />
+            {refPath(repoRef).split(/[\\/]/).filter(Boolean).pop()}
+          </span>
+        )}
         {attention > 0 && (
           <span className="rounded-full bg-red-900/40 px-2 py-0.5 text-[11px] font-medium text-red-300 ring-1 ring-red-500/30">
             {attention} need{attention === 1 ? "s" : ""} attention
@@ -241,6 +300,7 @@ function TeamSection({
       )}
       {expanded && (
         <div className="divide-y divide-gray-800/70 border-t border-gray-800">
+          {id && <TeamRepoControl teamId={id} repoRef={repoRef ?? null} />}
           {sorted.length === 0 ? (
             <div className="px-4 py-3 text-xs text-gray-500">No agents in this team yet.</div>
           ) : (
@@ -252,12 +312,81 @@ function TeamSection({
   );
 }
 
+/** Build the API's workspace ref from a repo path + isolation choice (null when blank). */
+function refFrom(repoPath: string, useWorktree: boolean): WorkspaceRefBody | null {
+  const p = repoPath.trim();
+  if (!p) return null;
+  return useWorktree
+    ? { kind: "git_worktree", repo_path: p, worktree_path: p, branch: "main" }
+    : { kind: "plain_dir", path: p };
+}
+
+/** Display path out of a ref (repo_path for a worktree, path for a plain dir). */
+function refPath(ref: WorkspaceRef | null): string {
+  if (!ref) return "";
+  return ref.kind === "git_worktree" ? ref.repo_path : ref.path;
+}
+
+/**
+ * Repo-path input + "isolated worktree per task" toggle, shared by the agent form, the
+ * team form, and the team repo editor. Owns its own fields; emits the built ref on change.
+ */
+function WorkspaceField({
+  initial,
+  disabled,
+  label = "Working directory (optional)",
+  onChange,
+}: {
+  initial?: WorkspaceRef | null;
+  disabled?: boolean;
+  label?: string;
+  onChange: (ref: WorkspaceRefBody | null) => void;
+}) {
+  const [repoPath, setRepoPath] = useState(refPath(initial ?? null));
+  const [useWorktree, setUseWorktree] = useState(initial?.kind !== "plain_dir");
+  const update = (p: string, w: boolean) => {
+    setRepoPath(p);
+    setUseWorktree(w);
+    onChange(refFrom(p, w));
+  };
+  return (
+    <>
+      <div className="mb-3">
+        <Label>{label}</Label>
+        <TextInput
+          aria-label="Repo path"
+          placeholder="e.g. C:\repos\my-project — where tasks run"
+          value={repoPath}
+          onChange={(e) => update(e.target.value, useWorktree)}
+          disabled={disabled}
+        />
+      </div>
+      {repoPath.trim() && (
+        <div className={cx("mb-3 rounded-md border p-3", useWorktree ? "border-gray-800 bg-gray-900/40" : "border-amber-800/50 bg-amber-950/20")}>
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <input type="checkbox" className="accent-green-600" checked={useWorktree} onChange={(e) => update(repoPath, e.target.checked)} disabled={disabled} />
+            Use an isolated git worktree per task (recommended)
+          </label>
+          <p className={cx("mt-1.5 text-xs", useWorktree ? "text-gray-500" : "text-amber-400/90")}>
+            {useWorktree ? (
+              "Each workstream gets its own worktree copy off this repo — changes stay isolated until you merge."
+            ) : (
+              <><Icon name="alert" size={11} className="mr-1 inline" />No isolation — edits land straight on your working tree.</>
+            )}
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
 function NewTeamForm({ onDone }: { onDone: () => void }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [wsRef, setWsRef] = useState<WorkspaceRefBody | null>(null);
   const create = useMutation({
-    mutationFn: () => apiClient.createTeam({ name, description }),
+    mutationFn: () => apiClient.createTeam({ name, description, default_workspace_ref: wsRef }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["org"] });
       onDone();
@@ -281,6 +410,11 @@ function NewTeamForm({ onDone }: { onDone: () => void }) {
           <Label>Description</Label>
           <TextInput aria-label="Team description" placeholder="Optional" value={description} onChange={(e) => setDescription(e.target.value)} disabled={create.isPending} />
         </div>
+        <WorkspaceField
+          label="Project directory (optional) — agents in this team inherit it"
+          disabled={create.isPending}
+          onChange={setWsRef}
+        />
         <div className="flex items-center gap-3">
           <Button type="submit" variant="primary" size="sm" disabled={create.isPending || !name.trim()}>
             {create.isPending ? "Creating…" : "Create team"}
@@ -302,8 +436,7 @@ function NewAgentForm({ teams, onDone }: { teams: OrgViewTeam[]; onDone: () => v
   const [teamId, setTeamId] = useState("");
   const [charter, setCharter] = useState("");
   const [engine, setEngine] = useState("fake");
-  const [repoPath, setRepoPath] = useState("");
-  const [useWorktree, setUseWorktree] = useState(true);
+  const [wsRef, setWsRef] = useState<WorkspaceRefBody | null>(null);
   const create = useMutation({
     mutationFn: () =>
       apiClient.createAgent({
@@ -313,13 +446,9 @@ function NewAgentForm({ teams, onDone }: { teams: OrgViewTeam[]; onDone: () => v
         charter_md: charter || `# ${name}`,
         engine: { id: engine },
         // Default working dir: applied to this agent's runs (incl. delegated tasks) when a
-        // workstream doesn't set its own. The runtime only reads repo_path off a worktree
-        // ref (worktree_path/branch are schema-required placeholders it ignores).
-        default_workspace_ref: !repoPath.trim()
-          ? null
-          : useWorktree
-            ? { kind: "git_worktree", repo_path: repoPath.trim(), worktree_path: repoPath.trim(), branch: "main" }
-            : { kind: "plain_dir", path: repoPath.trim() },
+        // workstream doesn't set its own. Overrides the team default — a "consultant"
+        // pointed at their own repo. Blank = inherit the team's project (or scratch).
+        default_workspace_ref: wsRef,
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["org"] });
@@ -370,25 +499,11 @@ function NewAgentForm({ teams, onDone }: { teams: OrgViewTeam[]; onDone: () => v
           <Label>Charter (markdown, optional)</Label>
           <TextArea aria-label="Charter" className="h-20" placeholder="Instructions for this agent — defaults to a stub if left blank." value={charter} onChange={(e) => setCharter(e.target.value)} disabled={create.isPending} />
         </div>
-        <div className="mb-3">
-          <Label>Default working directory (optional)</Label>
-          <TextInput aria-label="Default repo path" placeholder="e.g. C:\repos\my-project — where this agent's tasks run" value={repoPath} onChange={(e) => setRepoPath(e.target.value)} disabled={create.isPending} />
-        </div>
-        {repoPath.trim() && (
-          <div className={cx("mb-3 rounded-md border p-3", useWorktree ? "border-gray-800 bg-gray-900/40" : "border-amber-800/50 bg-amber-950/20")}>
-            <label className="flex items-center gap-2 text-sm text-gray-300">
-              <input type="checkbox" className="accent-green-600" checked={useWorktree} onChange={(e) => setUseWorktree(e.target.checked)} disabled={create.isPending} />
-              Use an isolated git worktree per task (recommended)
-            </label>
-            <p className={cx("mt-1.5 text-xs", useWorktree ? "text-gray-500" : "text-amber-400/90")}>
-              {useWorktree ? (
-                "Each workstream gets its own worktree copy off this repo — changes stay isolated until you merge."
-              ) : (
-                <><Icon name="alert" size={11} className="mr-1 inline" />No isolation — this agent's edits land straight on your working tree.</>
-              )}
-            </p>
-          </div>
-        )}
+        <WorkspaceField
+          label="Default working directory (optional) — overrides the team's project"
+          disabled={create.isPending}
+          onChange={setWsRef}
+        />
         <div className="flex items-center gap-3">
           <Button type="submit" variant="primary" size="sm" disabled={create.isPending || !name.trim() || !role.trim()}>
             {create.isPending ? "Creating…" : "Create agent"}
@@ -452,7 +567,7 @@ export default function OrgView() {
       )}
 
       {org.teams.map((team: OrgViewTeam) => (
-        <TeamSection key={team.id} id={team.id} name={team.name} status={team.status} agents={team.agents} />
+        <TeamSection key={team.id} id={team.id} name={team.name} status={team.status} agents={team.agents} repoRef={team.default_workspace_ref} />
       ))}
       {org.unassignedAgents.length > 0 && (
         <TeamSection

@@ -1,4 +1,4 @@
-import { newTeamId, type Policy, type Team, type TeamId } from "@foundry/core";
+import { newTeamId, type Policy, type Team, type TeamId, type WorkspaceRef } from "@foundry/core";
 import type { Db } from "../db/connection.js";
 import type { Mutate } from "../types.js";
 import { fromJson } from "../row-mapping.js";
@@ -7,21 +7,32 @@ export interface CreateTeamInput {
   name: string;
   description: string;
   default_policy: Policy;
+  default_workspace_ref?: WorkspaceRef | null;
 }
 
 /** Teams carry no state machine (02: "labels with defaults, not containers with behaviour"). */
 export function createTeam(mutate: Mutate, input: CreateTeamInput): Team {
   const id = newTeamId();
+  const default_workspace_ref = input.default_workspace_ref ?? null;
   return mutate({
     apply: (tx) => {
       tx.db
-        .prepare(`INSERT INTO teams (id, name, description, default_policy_json) VALUES (?, ?, ?, ?)`)
-        .run(id, input.name, input.description, JSON.stringify(input.default_policy));
+        .prepare(
+          `INSERT INTO teams (id, name, description, default_policy_json, default_workspace_ref_json) VALUES (?, ?, ?, ?, ?)`
+        )
+        .run(
+          id,
+          input.name,
+          input.description,
+          JSON.stringify(input.default_policy),
+          default_workspace_ref ? JSON.stringify(default_workspace_ref) : null
+        );
       return {
         id,
         name: input.name,
         description: input.description,
         default_policy: input.default_policy,
+        default_workspace_ref,
       } satisfies Team;
     },
     // No dedicated `team_*` prefix exists in the catalogue (contracts.md lists teams as
@@ -35,6 +46,8 @@ export interface UpdateTeamInput {
   id: TeamId;
   name?: string;
   description?: string;
+  /** undefined = leave as-is; null = clear (unassign the team's repo). */
+  default_workspace_ref?: WorkspaceRef | null;
 }
 
 /** Same "labels with defaults" exemption as createTeam — no catalogue event (#17). */
@@ -43,13 +56,17 @@ export function updateTeam(db: Db, mutate: Mutate, input: UpdateTeamInput): Team
   if (!row) throw new Error(`team not found: ${input.id}`);
   const name = input.name ?? row.name;
   const description = input.description ?? row.description;
+  const ref =
+    input.default_workspace_ref !== undefined ? input.default_workspace_ref : rowToTeam(row).default_workspace_ref;
   mutate({
     apply: (tx) => {
-      tx.db.prepare(`UPDATE teams SET name = ?, description = ? WHERE id = ?`).run(name, description, input.id);
+      tx.db
+        .prepare(`UPDATE teams SET name = ?, description = ?, default_workspace_ref_json = ? WHERE id = ?`)
+        .run(name, description, ref ? JSON.stringify(ref) : null, input.id);
     },
     events: [],
   });
-  return { ...rowToTeam(row), name, description };
+  return { ...rowToTeam(row), name, description, default_workspace_ref: ref };
 }
 
 /**
@@ -75,6 +92,7 @@ export interface TeamRow {
   name: string;
   description: string;
   default_policy_json: string;
+  default_workspace_ref_json: string | null;
 }
 
 export function rowToTeam(row: TeamRow): Team {
@@ -83,5 +101,8 @@ export function rowToTeam(row: TeamRow): Team {
     name: row.name,
     description: row.description,
     default_policy: fromJson(row.default_policy_json, {}),
+    default_workspace_ref: row.default_workspace_ref_json
+      ? fromJson(row.default_workspace_ref_json, null)
+      : null,
   };
 }

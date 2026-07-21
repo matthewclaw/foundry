@@ -1,5 +1,5 @@
 /** E2.5 — orgView(): teams + agents with derived status, worst-of team roll-ups. */
-import type { Agent, AgentId, AgentState, TeamId } from "@foundry/core";
+import type { Agent, AgentId, AgentState, Team, TeamId } from "@foundry/core";
 import type { Db } from "../db/connection.js";
 import { rowToAgent, type AgentRow } from "../mutations/agents.js";
 import { rowToTeam, type TeamRow } from "../mutations/teams.js";
@@ -20,6 +20,8 @@ export interface OrgViewTeam {
   agents: OrgViewAgent[];
   /** Worst status among the team's active agents (02: "roll-up status per team, worst-of members"). */
   status: AgentStatus;
+  /** The repo/dir this team is assigned to; agents inherit it (see facade workspace resolution). */
+  default_workspace_ref: Team["default_workspace_ref"];
 }
 
 export interface OrgView {
@@ -64,6 +66,7 @@ export function orgView(db: Db): OrgView {
       name: team.name,
       agents,
       status: worstStatus(agents.map((a) => a.status)),
+      default_workspace_ref: team.default_workspace_ref,
     };
   });
 

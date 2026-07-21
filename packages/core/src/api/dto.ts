@@ -47,6 +47,7 @@ export const CreateTeamRequestSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(""),
   default_policy: PolicySchema.optional(),
+  default_workspace_ref: WorkspaceRefSchema.nullable().optional(),
 });
 export type CreateTeamRequest = z.infer<typeof CreateTeamRequestSchema>;
 
@@ -55,6 +56,7 @@ export type CreateTeamRequest = z.infer<typeof CreateTeamRequestSchema>;
 export const PatchTeamRequestSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
+  default_workspace_ref: WorkspaceRefSchema.nullable().optional(),
 });
 export type PatchTeamRequest = z.infer<typeof PatchTeamRequestSchema>;
 

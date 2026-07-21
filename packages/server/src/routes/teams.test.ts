@@ -56,6 +56,30 @@ describe("Team routes", () => {
     expect(JSON.parse(res.body).default_policy).toMatchObject({ max_depth: 2 });
   });
 
+  it("carries default_workspace_ref through create → patch (change) → patch (clear)", async () => {
+    const ref = { kind: "git_worktree", repo_path: "C:/repos/proj", worktree_path: "C:/repos/proj", branch: "main" };
+    const created = await server.app.inject({
+      method: "POST",
+      url: "/api/teams",
+      payload: { name: "Dev", description: "", default_workspace_ref: ref },
+    });
+    const team = JSON.parse(created.body);
+    expect(team.default_workspace_ref).toMatchObject({ kind: "git_worktree", repo_path: "C:/repos/proj" });
+
+    // A name-only patch must not wipe the ref (undefined = leave as-is).
+    const renamed = await server.app.inject({ method: "PATCH", url: `/api/teams/${team.id}`, payload: { name: "Dev2" } });
+    expect(JSON.parse(renamed.body).default_workspace_ref).toMatchObject({ repo_path: "C:/repos/proj" });
+
+    // Explicit null clears it.
+    const cleared = await server.app.inject({
+      method: "PATCH",
+      url: `/api/teams/${team.id}`,
+      payload: { default_workspace_ref: null },
+    });
+    expect(JSON.parse(cleared.body).default_workspace_ref).toBeNull();
+    expect(server.store.teams.get(team.id)?.default_workspace_ref).toBeNull();
+  });
+
   it("POST /api/teams 400 — rejects a missing name", async () => {
     const res = await server.app.inject({ method: "POST", url: "/api/teams", payload: { description: "x" } });
     expect(res.statusCode).toBe(400);

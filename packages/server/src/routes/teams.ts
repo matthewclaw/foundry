@@ -16,6 +16,7 @@ export function registerTeamRoutes(app: FastifyInstance, ctx: RouteContext): voi
       name: body.name,
       description: body.description,
       default_policy: body.default_policy ?? {},
+      default_workspace_ref: body.default_workspace_ref ?? null,
     });
     return reply.status(201).send(team);
   });
@@ -28,7 +29,12 @@ export function registerTeamRoutes(app: FastifyInstance, ctx: RouteContext): voi
       throw new ProblemError(404, "Team not found", `Team ${teamId} does not exist`);
     }
 
-    const team = ctx.store.commands.updateTeam({ id: teamId, name: body.name, description: body.description });
+    const team = ctx.store.commands.updateTeam({
+      id: teamId,
+      name: body.name,
+      description: body.description,
+      default_workspace_ref: body.default_workspace_ref,
+    });
     return reply.status(200).send(team);
   });
 

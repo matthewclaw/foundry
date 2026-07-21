@@ -3,7 +3,7 @@
  * (packages/store/src/projections/{orgView,status,inbox}.ts).
  * L4 rule (contracts.md): ui may import @foundry/core types only, never @foundry/store.
  */
-import type { AgentId, TeamId, AgentState } from "@foundry/core";
+import type { AgentId, TeamId, AgentState, WorkspaceRef } from "@foundry/core";
 
 export type AgentStatus = "blocked" | "degraded" | "waiting" | "active" | "over-committed" | "idle";
 
@@ -29,6 +29,8 @@ export interface OrgViewTeam {
   agents: OrgViewAgent[];
   /** Worst status among the team's agents (worst-of roll-up). */
   status: AgentStatus;
+  /** Repo/dir this team is assigned to; agents inherit it. Null/absent = unassigned. */
+  default_workspace_ref?: WorkspaceRef | null;
 }
 
 export interface OrgView {

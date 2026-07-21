@@ -108,11 +108,14 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   }
 
   function acquireWorkspace(workstream: Workstream): { ok: boolean; workspaceDir?: string; refusalReason?: string } {
-    // A workstream's own ref wins; otherwise fall back to the agent's default_workspace_ref
-    // — that's how a "real" coding agent (e.g. a Backend Engineer) is pointed at an actual
-    // repo, so its runs (including delegated tasks, which never carry a ref) land there
-    // instead of a throwaway scratch dir. Scratch remains the last resort.
-    const ref = workstream.workspace_ref ?? store.agents.get(workstream.agent_id)?.default_workspace_ref ?? null;
+    // Resolution order (most specific wins): the workstream's own ref → the agent's
+    // default (a "consultant" pointed at their own repo) → the agent's team default
+    // ("this team works on this project"). That's how a "real" coding agent's runs
+    // (including delegated tasks, which never carry a ref) land in an actual repo instead
+    // of a throwaway scratch dir. Scratch remains the last resort.
+    const agent = store.agents.get(workstream.agent_id);
+    const teamRef = agent?.team_id ? store.teams.get(agent.team_id)?.default_workspace_ref ?? null : null;
+    const ref = workstream.workspace_ref ?? agent?.default_workspace_ref ?? teamRef ?? null;
     if (ref?.kind === "git_worktree") return workspaces.acquireGitWorktree(workstream.id, ref.repo_path);
     if (ref?.kind === "plain_dir") {
       // The point of plain_dir is running directly in an existing folder, no

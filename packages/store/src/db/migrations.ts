@@ -225,4 +225,11 @@ SELECT id, result_json FROM runs WHERE result_json IS NOT NULL;
 ALTER TABLE runs ADD COLUMN title TEXT;
 `,
   },
+  {
+    version: 4,
+    name: "team-default-workspace",
+    up: `
+ALTER TABLE teams ADD COLUMN default_workspace_ref_json TEXT;
+`,
+  },
 ];

@@ -176,6 +176,44 @@ describe("createRuntime — the contracts.md Runtime facade", () => {
     rmSync(realFolder, { recursive: true, force: true });
   });
 
+  it("falls back to the agent's team default_workspace_ref when neither workstream nor agent set one", async () => {
+    const { store, runtime } = setup();
+    const realFolder = mkdtempSync(join(tmpdir(), "foundry-team-default-"));
+    // "This team works on this project": repo lives on the team, agent inherits it.
+    const team = store.commands.createTeam({
+      name: "Main Dev Team",
+      description: "owns the project",
+      default_policy: {},
+      default_workspace_ref: { kind: "plain_dir", path: realFolder },
+    });
+    const { agentId } = store.commands.createAgent({
+      name: "Inheritor",
+      role: "Backend Engineer",
+      team_id: team.id,
+      engine_id: "fake",
+      engine_config: { scenarioName: "happy-path" },
+      memory_ref: "agents/inheritor/memory",
+      charter_body_md: "# Inheritor",
+      // No agent default — resolution should reach the team.
+    });
+    store.commands.transitionAgentState({ id: agentId, to: "active", actorId: null });
+    const ws = store.commands.createWorkstream({
+      agent_id: agentId,
+      title: "delegated-style task",
+      goal_md: "g",
+      origin: "human",
+      budget: ZERO_BUDGET,
+    }).id;
+
+    const run = runtime.enqueue({ workstreamId: ws, trigger: "human_message" });
+    await idle(runtime);
+
+    expect(store.runs.get(run.id)?.state).toBe("completed");
+    // The team default was used, so no scratch dir was created for this workstream.
+    expect(existsSync(join(dir!, "workspaces", `scratch-${ws}`))).toBe(false);
+    rmSync(realFolder, { recursive: true, force: true });
+  });
+
   it("tells composeContext resuming=false on the first run, true when a prior session is resumed", async () => {
     const seen: boolean[] = [];
     dir = mkdtempSync(join(tmpdir(), "foundry-facade-resume-"));

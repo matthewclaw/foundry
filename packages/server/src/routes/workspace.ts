@@ -21,7 +21,8 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: RouteContext)
     if (!workstream) throw new ProblemError(404, "Workstream not found", `Workstream ${id} does not exist`);
     const agent = ctx.store.agents.get(workstream.agent_id);
     if (!agent) throw new ProblemError(404, "Agent not found", `Agent ${workstream.agent_id} does not exist`);
-    const { path, kind } = resolveWorkspaceDir(ctx.dataDir, workstream, agent);
+    const team = agent.team_id ? ctx.store.teams.get(agent.team_id) : null;
+    const { path, kind } = resolveWorkspaceDir(ctx.dataDir, workstream, agent, team);
     return { workstream, path, kind };
   }
 

@@ -62,6 +62,7 @@ export const teamFixture: Team = {
   name: "Backend",
   description: "Server-side specialists",
   default_policy: { max_depth: 3 },
+  default_workspace_ref: null,
 };
 
 export const agentFixture: Agent = {
