@@ -784,6 +784,7 @@ function WorkspacePanel({ workstreamId }: { workstreamId: string }) {
         </p>
       )}
       {promote.error && <ErrorText error={promote.error} />}
+      {open.error && <ErrorText error={open.error} />}
     </Panel>
   );
 }

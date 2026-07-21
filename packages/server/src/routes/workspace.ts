@@ -32,7 +32,13 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: RouteContext)
 
   app.post<{ Params: { id: string } }>("/api/workstreams/:id/workspace/open", async (request, reply) => {
     const { path } = resolve(request.params.id);
-    openInEditor(path);
+    if (!openInEditor(path)) {
+      throw new ProblemError(
+        409,
+        "Could not open editor",
+        "Failed to launch `code` — is the VS Code CLI on the daemon's PATH? Use Reveal instead."
+      );
+    }
     return reply.status(202).send({ ok: true, path });
   });
 

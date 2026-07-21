@@ -4,7 +4,7 @@
  * diff-reading to your editor (open-in-IDE), and promotes the agent's scratch work to a
  * real branch you review/merge with your own tools — it does not render diffs or merge.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent, Workstream } from "@foundry/core";
@@ -78,13 +78,16 @@ export function inspectWorkspace(path: string, kind: WorkspaceKind): WorkspaceIn
   return { path, kind, exists: true, git: { branch, changed, committed: branch !== "(detached)" && changed.length === 0 } };
 }
 
-/** Open a directory in VS Code. Fire-and-forget — never blocks the request. */
-export function openInEditor(path: string): void {
-  // `code` resolves via PATH; detached so a slow editor launch doesn't hold the response.
+/** Open a directory in VS Code. Returns false if `code` isn't launchable so the caller
+ * can say so instead of the click looking dead. Must go through a shell: on Windows
+ * `code` is `code.cmd`, which Node's execFile refuses to run directly (ENOENT). `code`
+ * hands off to the running instance and returns immediately, so sync-with-timeout is fine. */
+export function openInEditor(path: string): boolean {
   try {
-    execFileSync("code", [path], { stdio: "ignore" });
+    execSync(`code "${path}"`, { stdio: "ignore", timeout: 10000 });
+    return true;
   } catch {
-    /* editor not on PATH — the caller still has the path to open manually */
+    return false;
   }
 }
 
