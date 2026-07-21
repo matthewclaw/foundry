@@ -155,6 +155,7 @@ describe("OrgView", () => {
         team_id: "team-1",
         charter_md: "# Orbit",
         engine: { id: "fake" },
+        default_workspace_ref: null,
       })
     );
   });

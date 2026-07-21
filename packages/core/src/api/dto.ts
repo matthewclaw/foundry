@@ -18,6 +18,9 @@ export const CreateAgentRequestSchema = z.object({
   charter_md: z.string().min(1),
   engine: EngineBindingSchema,
   policy_overrides: PolicySchema.optional(),
+  /** Default working directory for this agent's runs when a workstream doesn't set its
+   * own — lets a "real" coding agent run in an actual repo instead of a scratch dir. */
+  default_workspace_ref: WorkspaceRefSchema.nullable().optional(),
 });
 export type CreateAgentRequest = z.infer<typeof CreateAgentRequestSchema>;
 
@@ -28,6 +31,7 @@ export const PatchAgentRequestSchema = z.object({
   charter_md: z.string().min(1).optional(),
   engine: EngineBindingSchema.optional(),
   policy_overrides: PolicySchema.optional(),
+  default_workspace_ref: WorkspaceRefSchema.nullable().optional(),
 });
 export type PatchAgentRequest = z.infer<typeof PatchAgentRequestSchema>;
 

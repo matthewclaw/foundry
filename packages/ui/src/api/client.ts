@@ -31,6 +31,7 @@ export interface CreateAgentBody {
   team_id?: string | null;
   charter_md: string;
   engine: { id: string; config?: unknown };
+  default_workspace_ref?: WorkspaceRefBody | null;
 }
 
 export interface CreateTeamBody {

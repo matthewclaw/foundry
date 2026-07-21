@@ -7,6 +7,7 @@ coverage/
 
 # Runtime data (agent state, DB, workspaces — never committed)
 .foundry/
+*.foundry/
 
 # Environment & secrets
 .env

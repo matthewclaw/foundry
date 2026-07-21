@@ -313,6 +313,24 @@ Body`,
     expect(text).toContain("# Workspace\n\nYour working directory for this run: `<dataDir>/repo-checkout`");
   });
 
+  it("resume: emits only the trigger + pending items, dropping the static prelude the engine already has", () => {
+    const f = fixture("human_message");
+    const full = composeContextText({ store: f.store, dataDir: f.dataDir, ...f });
+    const delta = composeContextText({ store: f.store, dataDir: f.dataDir, ...f, resuming: true });
+
+    // The new turn's content is still there…
+    expect(delta).toContain("# Continued conversation");
+    expect(delta).toContain("# Trigger");
+    expect(delta).toContain("Which staging cluster should I use for load tests?");
+    expect(delta).toContain("# Pending items");
+    // …but the static prelude is gone (the engine holds it from turn 1).
+    for (const omitted of ["# Charter", "# Memory", "# Org-tools", "# Skills", "# Workspace"]) {
+      expect(delta).not.toContain(omitted);
+    }
+    // And it's a big saving.
+    expect(delta.length).toBeLessThan(full.length / 2);
+  });
+
   it("renders a no-workspace fallback when workspaceDir is empty (non-code workstream)", () => {
     const f = fixture("human_message");
     const text = normalise(composeContextText({ store: f.store, dataDir: f.dataDir, ...f, workspaceDir: "" }), f);

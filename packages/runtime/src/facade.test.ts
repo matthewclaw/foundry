@@ -144,6 +144,82 @@ describe("createRuntime — the contracts.md Runtime facade", () => {
     rmSync(realFolder, { recursive: true, force: true });
   });
 
+  it("falls back to the agent's default_workspace_ref when the workstream sets none", async () => {
+    const { store, runtime } = setup();
+    const realFolder = mkdtempSync(join(tmpdir(), "foundry-agent-default-"));
+    const { agentId } = store.commands.createAgent({
+      name: "Coder",
+      role: "Backend Engineer",
+      team_id: null,
+      engine_id: "fake",
+      engine_config: { scenarioName: "happy-path" },
+      memory_ref: "agents/coder/memory",
+      charter_body_md: "# Coder",
+      default_workspace_ref: { kind: "plain_dir", path: realFolder },
+    });
+    store.commands.transitionAgentState({ id: agentId, to: "active", actorId: null });
+    // Workstream with NO workspace_ref — like a delegated task.
+    const ws = store.commands.createWorkstream({
+      agent_id: agentId,
+      title: "delegated-style task",
+      goal_md: "g",
+      origin: "human",
+      budget: ZERO_BUDGET,
+    }).id;
+
+    const run = runtime.enqueue({ workstreamId: ws, trigger: "human_message" });
+    await idle(runtime);
+
+    expect(store.runs.get(run.id)?.state).toBe("completed");
+    // The agent default was used, so no scratch dir was created for this workstream.
+    expect(existsSync(join(dir!, "workspaces", `scratch-${ws}`))).toBe(false);
+    rmSync(realFolder, { recursive: true, force: true });
+  });
+
+  it("tells composeContext resuming=false on the first run, true when a prior session is resumed", async () => {
+    const seen: boolean[] = [];
+    dir = mkdtempSync(join(tmpdir(), "foundry-facade-resume-"));
+    const store = createStore({ dataDir: dir });
+    stores.push(store);
+    const { agentId } = store.commands.createAgent({
+      name: "Chatty",
+      role: "Assistant",
+      team_id: null,
+      engine_id: "fake",
+      engine_config: { scenarioName: "happy-path" },
+      memory_ref: "agents/chatty/memory",
+      charter_body_md: "# Chatty",
+    });
+    store.commands.transitionAgentState({ id: agentId, to: "active", actorId: null });
+    const ws = store.commands.createWorkstream({
+      agent_id: agentId,
+      title: "chat",
+      goal_md: "talk",
+      origin: "human",
+      budget: ZERO_BUDGET,
+    }).id;
+    const runtime = createRuntime({
+      store,
+      adapters: { fake: createFakeAdapter(loadScenario("happy-path")) },
+      dataDir: dir,
+      composeContext: ({ run, resuming }) => {
+        seen.push(resuming);
+        const path = join(dir!, run.input_context_ref);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, "# ctx", "utf8");
+        return path;
+      },
+    });
+
+    runtime.enqueue({ workstreamId: ws, trigger: "human_message" });
+    await idle(runtime);
+    runtime.enqueue({ workstreamId: ws, trigger: "human_message", allowResume: true });
+    await idle(runtime);
+
+    expect(seen[0]).toBe(false); // cold start — full context
+    expect(seen[1]).toBe(true); // resumes the first run's session — delta context
+  });
+
   it("workspace_ref plain_dir with a missing path refuses the run with a clear reason", async () => {
     const { store, runtime, agentId } = setup();
     const missingFolder = join(tmpdir(), "foundry-plain-dir-does-not-exist");

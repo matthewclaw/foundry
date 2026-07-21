@@ -302,6 +302,8 @@ function NewAgentForm({ teams, onDone }: { teams: OrgViewTeam[]; onDone: () => v
   const [teamId, setTeamId] = useState("");
   const [charter, setCharter] = useState("");
   const [engine, setEngine] = useState("fake");
+  const [repoPath, setRepoPath] = useState("");
+  const [useWorktree, setUseWorktree] = useState(true);
   const create = useMutation({
     mutationFn: () =>
       apiClient.createAgent({
@@ -310,6 +312,14 @@ function NewAgentForm({ teams, onDone }: { teams: OrgViewTeam[]; onDone: () => v
         team_id: teamId || null,
         charter_md: charter || `# ${name}`,
         engine: { id: engine },
+        // Default working dir: applied to this agent's runs (incl. delegated tasks) when a
+        // workstream doesn't set its own. The runtime only reads repo_path off a worktree
+        // ref (worktree_path/branch are schema-required placeholders it ignores).
+        default_workspace_ref: !repoPath.trim()
+          ? null
+          : useWorktree
+            ? { kind: "git_worktree", repo_path: repoPath.trim(), worktree_path: repoPath.trim(), branch: "main" }
+            : { kind: "plain_dir", path: repoPath.trim() },
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["org"] });
@@ -360,6 +370,25 @@ function NewAgentForm({ teams, onDone }: { teams: OrgViewTeam[]; onDone: () => v
           <Label>Charter (markdown, optional)</Label>
           <TextArea aria-label="Charter" className="h-20" placeholder="Instructions for this agent — defaults to a stub if left blank." value={charter} onChange={(e) => setCharter(e.target.value)} disabled={create.isPending} />
         </div>
+        <div className="mb-3">
+          <Label>Default working directory (optional)</Label>
+          <TextInput aria-label="Default repo path" placeholder="e.g. C:\repos\my-project — where this agent's tasks run" value={repoPath} onChange={(e) => setRepoPath(e.target.value)} disabled={create.isPending} />
+        </div>
+        {repoPath.trim() && (
+          <div className={cx("mb-3 rounded-md border p-3", useWorktree ? "border-gray-800 bg-gray-900/40" : "border-amber-800/50 bg-amber-950/20")}>
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input type="checkbox" className="accent-green-600" checked={useWorktree} onChange={(e) => setUseWorktree(e.target.checked)} disabled={create.isPending} />
+              Use an isolated git worktree per task (recommended)
+            </label>
+            <p className={cx("mt-1.5 text-xs", useWorktree ? "text-gray-500" : "text-amber-400/90")}>
+              {useWorktree ? (
+                "Each workstream gets its own worktree copy off this repo — changes stay isolated until you merge."
+              ) : (
+                <><Icon name="alert" size={11} className="mr-1 inline" />No isolation — this agent's edits land straight on your working tree.</>
+              )}
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <Button type="submit" variant="primary" size="sm" disabled={create.isPending || !name.trim() || !role.trim()}>
             {create.isPending ? "Creating…" : "Create agent"}

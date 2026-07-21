@@ -26,6 +26,11 @@ export interface ComposeArgs {
    * seen (its memory/skills dirs, which live in the control plane's own data dir, not
    * its workspace) — confirmed live: it guessed wrong every time. */
   workspaceDir: string;
+  /** True when this run resumes a prior engine session (the facade decided so, matching
+   * the supervisor). The engine already holds the static prelude — charter, memory,
+   * org-tools, skills, workspace — from the session's first turn, so re-sending it every
+   * turn is pure duplication (~700 tokens). On resume we emit only what's new. */
+  resuming?: boolean;
 }
 
 /** Composes and writes the run's context file; returns its absolute path. */
@@ -37,7 +42,19 @@ export function composeContext(args: ComposeArgs): string {
 }
 
 /** The pure composition — exported separately so golden-fixture tests need no filesystem. */
-export function composeContextText({ store, dataDir, run, workstream, agent, workspaceDir }: ComposeArgs): string {
+export function composeContextText(args: ComposeArgs): string {
+  const { store, dataDir, run, workstream, agent, workspaceDir, resuming } = args;
+  // Resume: the engine already has the static prelude from this conversation's first
+  // turn (it was cold-started with the full context, and `--resume` replays the whole
+  // session). Re-stating charter/memory/tools/skills/workspace every turn is pure
+  // duplication, so emit only what's new — the trigger and any pending items.
+  if (resuming) {
+    return [
+      resumeHeaderSection(),
+      triggerSection(store, run, workstream, agent),
+      pendingSection(store, agent),
+    ].join("\n\n");
+  }
   return [
     charterSection(store, agent),
     memorySection(dataDir, agent),
@@ -48,6 +65,17 @@ export function composeContextText({ store, dataDir, run, workstream, agent, wor
     skillsSection(dataDir, agent),
     workspaceSection(workspaceDir),
   ].join("\n\n");
+}
+
+/** The one-liner that stands in for the omitted prelude on a resumed turn. */
+function resumeHeaderSection(): string {
+  return [
+    "# Continued conversation",
+    "",
+    "You're continuing an existing conversation on this workstream. Your charter, memory,",
+    "org-tools, skills, and working directory from the start of it still apply and aren't",
+    "repeated here — only what's new follows.",
+  ].join("\n");
 }
 
 function charterSection(store: Store, agent: Agent): string {

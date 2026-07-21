@@ -168,6 +168,33 @@ export function rebindAgentEngine(
   });
 }
 
+/** Set (or clear, with null) the agent's default working directory — the fallback the
+ * runtime uses for any of its workstreams that don't set their own workspace_ref. */
+export function setAgentDefaultWorkspace(
+  db: Db,
+  mutate: Mutate,
+  args: { agentId: AgentId; workspaceRef: WorkspaceRef | null; actorId: ActorId | null }
+): void {
+  const row = db.prepare(`SELECT id FROM agents WHERE id = ?`).get(args.agentId);
+  if (!row) throw new Error(`agent not found: ${args.agentId}`);
+  mutate({
+    apply: (tx) => {
+      tx.db
+        .prepare(`UPDATE agents SET default_workspace_ref_json = ? WHERE id = ?`)
+        .run(toJson(args.workspaceRef), args.agentId);
+    },
+    events: [
+      {
+        actor_id: args.actorId,
+        entity_type: "agent",
+        entity_id: args.agentId,
+        type: "agent_default_workspace_set",
+        payload: { workspace_ref: args.workspaceRef },
+      },
+    ],
+  });
+}
+
 /**
  * The single human operator's Actor row (v1 is single-human; doc-03: "Agents and humans
  * are both actors"). Created lazily with no event — same catalogue gap/precedent as

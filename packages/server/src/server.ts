@@ -80,8 +80,8 @@ export function createServer(config: ServerConfig): FoundryServer {
     limits: config.limits,
     defaultWallClockMs: config.defaultWallClockMs,
     defaultStallMs: config.defaultStallMs,
-    composeContext: ({ run, workstream, agent, workspaceDir }) =>
-      composeContext({ store, dataDir: config.dataDir, run, workstream, agent, workspaceDir }),
+    composeContext: ({ run, workstream, agent, workspaceDir, resuming }) =>
+      composeContext({ store, dataDir: config.dataDir, run, workstream, agent, workspaceDir, resuming }),
     // E6.1: per-run scoped credential — minted at run start, revoked when the run's
     // execute settles. The engine reaches org-tools via env (CLI shim) or mcpConfig
     // (E6.2/E9.2 wire the MCP side).

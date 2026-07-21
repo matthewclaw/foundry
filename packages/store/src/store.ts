@@ -29,6 +29,7 @@ import {
   transitionAgentState,
   updateAgentCharter,
   rebindAgentEngine,
+  setAgentDefaultWorkspace,
   getOrCreateHumanActor,
   type CreateAgentInput,
   type TransitionAgentStateArgs,
@@ -85,6 +86,7 @@ export interface StoreCommands {
   transitionAgentState(args: TransitionAgentStateArgs): void;
   updateAgentCharter(args: Parameters<typeof updateAgentCharter>[2]): { version: number };
   rebindAgentEngine(args: Parameters<typeof rebindAgentEngine>[2]): void;
+  setAgentDefaultWorkspace(args: Parameters<typeof setAgentDefaultWorkspace>[2]): void;
   getOrCreateHumanActor(displayName?: string): ReturnType<typeof getOrCreateHumanActor>;
   createTeam(input: CreateTeamInput): Team;
   updateTeam(input: UpdateTeamInput): Team;
@@ -153,6 +155,7 @@ export function createStore(config: StoreConfig): Store {
       transitionAgentState: (args) => transitionAgentState(db, mutate, args),
       updateAgentCharter: (args) => updateAgentCharter(db, mutate, args),
       rebindAgentEngine: (args) => rebindAgentEngine(db, mutate, args),
+      setAgentDefaultWorkspace: (args) => setAgentDefaultWorkspace(db, mutate, args),
       getOrCreateHumanActor: (displayName) => getOrCreateHumanActor(db, mutate, displayName),
       createTeam: (input) => createTeam(mutate, input),
       updateTeam: (input) => updateTeam(db, mutate, input),

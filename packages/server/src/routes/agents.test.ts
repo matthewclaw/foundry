@@ -535,4 +535,29 @@ describe("Agent routes (E5.2)", () => {
     const res = await server.app.inject({ method: "DELETE", url: "/api/agents/nonexistent" });
     expect(res.statusCode).toBe(404);
   });
+
+  it("POST then PATCH set and update the agent's default_workspace_ref", async () => {
+    const created = await server.app.inject({
+      method: "POST",
+      url: "/api/agents",
+      payload: {
+        name: "Coder",
+        role: "Backend Engineer",
+        charter_md: "# c",
+        engine: { id: "fake" },
+        default_workspace_ref: { kind: "plain_dir", path: "/repos/foo" },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const agentId = JSON.parse(created.body).id;
+    expect(server.store.agents.get(agentId)?.default_workspace_ref).toEqual({ kind: "plain_dir", path: "/repos/foo" });
+
+    const patched = await server.app.inject({
+      method: "PATCH",
+      url: `/api/agents/${agentId}`,
+      payload: { default_workspace_ref: { kind: "plain_dir", path: "/repos/bar" } },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(server.store.agents.get(agentId)?.default_workspace_ref).toEqual({ kind: "plain_dir", path: "/repos/bar" });
+  });
 });

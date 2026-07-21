@@ -14,6 +14,28 @@ import type { RunQueueJob } from "../scheduler/queue.js";
 import type { PidRegistry } from "../reconcile/reconcile.js";
 import { foldEngineEvent } from "./fold.js";
 
+/**
+ * Conversation continuity: the engine session a brand-new run on this workstream should
+ * resume into, or undefined for a cold start. Pure (store + adapter capability + run
+ * history) and deterministic, so the facade can ask the same question at compose time as
+ * the supervisor asks at spawn time and get the same answer — that's what lets the
+ * composed context skip re-injecting the static prelude when it knows the engine already
+ * has it from the session's first turn. Picks the most recent PRIOR run that actually
+ * captured a session (a cancelled/failed blip that never got one doesn't sever the thread).
+ */
+export function resolveResumeSessionId(
+  store: Pick<Store, "runs">,
+  adapter: ExecutionAdapter,
+  workstreamId: Run["workstream_id"],
+  currentRunId: Run["id"]
+): string | undefined {
+  if (!adapter.capabilities().resume || !adapter.resume) return undefined;
+  const priorRuns = store.runs
+    .list({ workstream_id: workstreamId })
+    .filter((r) => r.id !== currentRunId && r.ended_at !== null && r.engine_session_id);
+  return priorRuns.at(-1)?.engine_session_id ?? undefined;
+}
+
 export interface RunSupervisorOptions {
   store: Pick<Store, "commands" | "workstreams" | "runs" | "events" | "agents">;
   /** Adapter registry keyed by engine id (contracts.md: Runtime "configured with Store + adapter registry"). */
@@ -272,15 +294,7 @@ export function createRunSupervisor(opts: RunSupervisorOptions) {
    * ended) run's session so a new message continues the same engine conversation.
    */
   function findResumableSessionId(workstreamId: RunQueueJob["workstreamId"], currentRunId: Run["id"], adapter: ExecutionAdapter): string | undefined {
-    if (!adapter.capabilities().resume || !adapter.resume) return undefined;
-    // The most recent prior run WITH a session — not just the most recent run
-    // overall, which may be a cancelled/failed one that never got far enough to
-    // capture a session id (e.g. a workspace-acquisition refusal). Skipping straight
-    // past those to the last real session means a blip doesn't sever the conversation.
-    const priorRuns = opts.store.runs
-      .list({ workstream_id: workstreamId })
-      .filter((r) => r.id !== currentRunId && r.ended_at !== null && r.engine_session_id);
-    return priorRuns.at(-1)?.engine_session_id ?? undefined;
+    return resolveResumeSessionId(opts.store, adapter, workstreamId, currentRunId);
   }
 
   /**

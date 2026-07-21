@@ -28,6 +28,7 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: RouteContext): vo
       charter_body_md: body.charter_md,
       memory_ref: "agents/{agent_id}/memory",
       policy_overrides: body.policy_overrides,
+      default_workspace_ref: body.default_workspace_ref ?? null,
     });
 
     // API-created agents are immediately usable (doc-02)
@@ -89,6 +90,15 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: RouteContext): vo
         ctx.store.commands.rebindAgentEngine({
           agentId,
           engine: body.engine,
+          actorId: human,
+        });
+      }
+
+      // Set/clear the default working directory if provided
+      if (body.default_workspace_ref !== undefined) {
+        ctx.store.commands.setAgentDefaultWorkspace({
+          agentId,
+          workspaceRef: body.default_workspace_ref,
           actorId: human,
         });
       }

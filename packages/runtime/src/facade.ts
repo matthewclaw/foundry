@@ -21,7 +21,7 @@ import type { Agent, Run, RunId, RunTrigger, Workstream, WorkstreamId } from "@f
 import type { Store } from "@foundry/store";
 import type { ExecutionAdapter, RunHandle } from "@foundry/adapter-api";
 import { createRunQueue, type RunQueue, type RunQueueJob, type RunQueueLimits } from "./scheduler/queue.js";
-import { createRunSupervisor } from "./supervisor/supervisor.js";
+import { createRunSupervisor, resolveResumeSessionId } from "./supervisor/supervisor.js";
 import { createWorkspaceManager, type WorkspaceManager } from "./workspace/manager.js";
 import { createPidRegistry, reconcileOnStartup, type ReconcileResult } from "./reconcile/reconcile.js";
 import { createInteractiveSessionManager, type AttachResult } from "./interactive/session.js";
@@ -38,7 +38,15 @@ export interface RuntimeOptions {
    * absolute path. Called at execute time (not enqueue time) so the context reflects
    * the world when the run actually starts, e.g. after queue delay.
    */
-  composeContext(args: { run: Run; workstream: Workstream; agent: Agent; workspaceDir: string }): string | Promise<string>;
+  composeContext(args: {
+    run: Run;
+    workstream: Workstream;
+    agent: Agent;
+    workspaceDir: string;
+    /** True when this run will resume a prior engine session — the context can then skip
+     * the static prelude (charter/memory/tools/skills) the engine already holds. */
+    resuming: boolean;
+  }): string | Promise<string>;
   /**
    * E6.1 hook: mint the per-run org-tools credential (server owns the token registry;
    * this layer only threads it into the RunSpec). Revoked when the run's execute
@@ -100,7 +108,11 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   }
 
   function acquireWorkspace(workstream: Workstream): { ok: boolean; workspaceDir?: string; refusalReason?: string } {
-    const ref = workstream.workspace_ref;
+    // A workstream's own ref wins; otherwise fall back to the agent's default_workspace_ref
+    // — that's how a "real" coding agent (e.g. a Backend Engineer) is pointed at an actual
+    // repo, so its runs (including delegated tasks, which never carry a ref) land there
+    // instead of a throwaway scratch dir. Scratch remains the last resort.
+    const ref = workstream.workspace_ref ?? store.agents.get(workstream.agent_id)?.default_workspace_ref ?? null;
     if (ref?.kind === "git_worktree") return workspaces.acquireGitWorktree(workstream.id, ref.repo_path);
     if (ref?.kind === "plain_dir") {
       // The point of plain_dir is running directly in an existing folder, no
@@ -135,7 +147,15 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         return;
       }
 
-      const contextFile = await opts.composeContext({ run, workstream, agent, workspaceDir: acquired.workspaceDir ?? "" });
+      // Will the supervisor resume a prior session for this run? Ask the same pure
+      // resolver it uses, so the composed context and the actual spawn can't disagree
+      // (a "resuming" context sent to a cold start would leave the agent with no charter).
+      const engineAdapter = adapters[job.engineId];
+      const resuming =
+        job.allowResume !== false &&
+        !!engineAdapter &&
+        !!resolveResumeSessionId(store, engineAdapter, job.workstreamId, run.id);
+      const contextFile = await opts.composeContext({ run, workstream, agent, workspaceDir: acquired.workspaceDir ?? "", resuming });
       try {
         await supervisor.execute(run, {
           ...job,
