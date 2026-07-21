@@ -48,6 +48,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       const output = execFileSync("git", ["status", "--porcelain"], {
         cwd: worktreePath,
         encoding: "utf-8",
+        windowsHide: true,
       });
       return output.length > 0;
     } catch {
@@ -99,6 +100,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     try {
       execFileSync("git", ["worktree", "add", worktreePath, "HEAD"], {
         cwd: repoPath,
+        windowsHide: true,
       });
     } catch (e) {
       return {
@@ -139,6 +141,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       try {
         execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
           cwd: cached.repoPath,
+          windowsHide: true,
         });
       } catch {
         // ponytail: best-effort removal, continue even if git fails

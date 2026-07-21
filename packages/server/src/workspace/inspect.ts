@@ -52,7 +52,9 @@ export function resolveWorkspaceDir(
 }
 
 function git(cwd: string, args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  // windowsHide: the workspace panel polls git on every workstream open — without this
+  // each git subprocess flashes a console window on Windows.
+  return execFileSync("git", args, { cwd, encoding: "utf8", windowsHide: true }).trim();
 }
 
 /** Read-only look at a workspace dir: does it exist, and (if a git repo) what changed. */
@@ -84,7 +86,7 @@ export function inspectWorkspace(path: string, kind: WorkspaceKind): WorkspaceIn
  * hands off to the running instance and returns immediately, so sync-with-timeout is fine. */
 export function openInEditor(path: string): boolean {
   try {
-    execSync(`code "${path}"`, { stdio: "ignore", timeout: 10000 });
+    execSync(`code "${path}"`, { stdio: "ignore", timeout: 10000, windowsHide: true });
     return true;
   } catch {
     return false;
